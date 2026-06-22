@@ -1425,7 +1425,7 @@
                     return;
                 }
 
-                var department = departmentSelect.value.trim();
+                var department = departmentSelect.value.trim().replace(/\0/g, '');
                 var username = usernameSelect.value;
                 var password = passwordInput.value;
 
