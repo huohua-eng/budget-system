@@ -975,10 +975,48 @@
         
 
         // ==================== Supabase 配置 ====================
-        // ⚠️ 请将下面的 URL 和 Key 替换为你在 Supabase 项目设置 → API 中获取的实际值
         const SUPABASE_URL = 'https://ywqikpkxmjigsgngrxhx.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3cWlrcGt4bWppZ3NnbmdyeGh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMTA3NzUsImV4cCI6MjA5NzY4Njc3NX0.mVr8B7Q06Pv8QgFoXHZX2wXAOvi07rEkt-41wSYwAnY';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        // 安全初始化 Supabase - 如果SDK未加载完成，不会阻止其他脚本运行
+        let db = null;
+        let supabaseReady = false;
+        
+        function initSupabase() {
+            try {
+                if (window.supabase && window.supabase.createClient) {
+                    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                    supabaseReady = true;
+                    console.log('Supabase 初始化成功');
+                } else {
+                    console.warn('Supabase SDK 未加载完成，将使用本地数据模式');
+                    supabaseReady = false;
+                }
+            } catch (e) {
+                console.error('Supabase 初始化失败:', e);
+                supabaseReady = false;
+            }
+        }
+        
+        // 立即尝试初始化
+        initSupabase();
+        
+        // 如果SDK还没加载，等它加载后再初始化
+        if (!supabaseReady) {
+            // 每100ms检查一次，最多等5秒
+            let checkCount = 0;
+            const checkInterval = setInterval(function() {
+                checkCount++;
+                if (window.supabase && window.supabase.createClient) {
+                    clearInterval(checkInterval);
+                    initSupabase();
+                }
+                if (checkCount >= 50) {
+                    clearInterval(checkInterval);
+                    console.warn('Supabase SDK 加载超时，将使用本地数据模式');
+                }
+            }, 100);
+        }
 
         // ==================== 全局变量 ====================
         let currentUser = null;
@@ -1046,12 +1084,29 @@
         // 角色说明：admin=管理员, dept_manager=部门负责人, normal=普通用户
 
         // ==================== Supabase 数据加载与保存 ====================
-        let revenueData = {};
-        let expenseData = {};
+        // 先从 localStorage 初始化数据（作为 Supabase 的降级方案）
+        let revenueData = JSON.parse(safeGetItem('revenueData') || '{}');
+        let expenseData = JSON.parse(safeGetItem('expenseData') || '{}');
+        for (let m = 0; m < 12; m++) {
+            if (!revenueData[m]) revenueData[m] = [];
+            if (!expenseData[m]) expenseData[m] = [];
+        }
 
         // 从 Supabase 加载所有数据
         async function loadAllData() {
             try {
+                // 如果 Supabase 未就绪，使用 localStorage 数据
+                if (!supabaseReady || !db) {
+                    console.log('Supabase未就绪，使用localStorage数据');
+                    revenueData = JSON.parse(safeGetItem('revenueData') || '{}');
+                    expenseData = JSON.parse(safeGetItem('expenseData') || '{}');
+                    for (let m = 0; m < 12; m++) {
+                        if (!revenueData[m]) revenueData[m] = [];
+                        if (!expenseData[m]) expenseData[m] = [];
+                    }
+                    return;
+                }
+                
                 // 加载收入预算数据
                 const { data: revenue, error: revError } = await db
                     .from('revenue_budget')
@@ -1146,6 +1201,11 @@
 
         // 保存单行收入预算数据到 Supabase
         async function saveRevenueRow(rowData) {
+            // 如果 Supabase 未就绪，仅保存到 localStorage
+            if (!supabaseReady || !db) {
+                safeSetItem('revenueData', JSON.stringify(revenueData));
+                return;
+            }
             try {
                 const dbRow = {
                     month: currentMonth,
@@ -1187,13 +1247,17 @@
                 }
             } catch (e) {
                 console.error('saveRevenueRow 异常:', e);
-                // 降级到 localStorage
                 safeSetItem('revenueData', JSON.stringify(revenueData));
             }
         }
 
         // 保存单行费用预算数据到 Supabase
         async function saveExpenseRow(rowData) {
+            // 如果 Supabase 未就绪，仅保存到 localStorage
+            if (!supabaseReady || !db) {
+                safeSetItem('expenseData', JSON.stringify(expenseData));
+                return;
+            }
             try {
                 const dbRow = {
                     month: currentMonth,
@@ -1237,6 +1301,7 @@
 
         // 从 Supabase 删除收入预算行
         async function deleteRevenueRowFromDB(rowId) {
+            if (!supabaseReady || !db) return;
             try {
                 if (rowId) {
                     const { error } = await db
@@ -1252,6 +1317,7 @@
 
         // 从 Supabase 删除费用预算行
         async function deleteExpenseRowFromDB(rowId) {
+            if (!supabaseReady || !db) return;
             try {
                 if (rowId) {
                     const { error } = await db
@@ -1409,7 +1475,18 @@
 
         // 数据已在上方的 Supabase 配置区域声明和初始化
 
-        // 初始化默认数据已由 loadAllData() 替代，在登录后调用
+        // 初始化默认数据（localStorage降级方案）
+        function initDefaultData() {
+            for (let m = 0; m < 12; m++) {
+                if (!revenueData[m] || revenueData[m].length === 0) {
+                    revenueData[m] = [];
+                }
+                if (!expenseData[m] || expenseData[m].length === 0) {
+                    expenseData[m] = [];
+                }
+            }
+        }
+        initDefaultData();
         // ==================== 登录功能 ====================
         
         // ==================== 登录功能（Supabase版） ====================
@@ -1425,7 +1502,7 @@
                     return;
                 }
 
-                var department = departmentSelect.value.trim().replace(/\0/g, '');
+                var department = departmentSelect.value.trim();
                 var username = usernameSelect.value;
                 var password = passwordInput.value;
 
@@ -1447,16 +1524,17 @@
                     return;
                 }
 
-                // 先尝试从 Supabase 验证用户
-                try {
-                    const { data: supabaseUser, error: userError } = await db
-                        .from('users')
-                        .select('*')
-                        .eq('username', username)
-                        .eq('password_hash', password)
-                        .single();
+                // 先尝试从 Supabase 验证用户（仅在SDK就绪时）
+                if (supabaseReady && db) {
+                    try {
+                        const { data: supabaseUser, error: userError } = await db
+                            .from('users')
+                            .select('*')
+                            .eq('username', username)
+                            .eq('password_hash', password)
+                            .single();
 
-                    if (!userError && supabaseUser) {
+                        if (!userError && supabaseUser) {
                         // Supabase 验证成功
                         isAdmin = (supabaseUser.role === 'admin');
                         isDeptManager = (supabaseUser.role === 'dept_manager');
