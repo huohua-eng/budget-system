@@ -1270,7 +1270,7 @@
                     const emptyRows = [];
                     for (let i = 0; i < 5; i++) {
                         emptyRows.push({
-                            dept: '销售部',
+                            dept: '',
                             contractNo: '',
                             projectNo: '',
                             customer: '',
@@ -1304,7 +1304,7 @@
                     const emptyRows = [];
                     for (let i = 0; i < 5; i++) {
                         emptyRows.push({
-                            dept: '销售部',  // 与收入预算一致
+                            dept: '',
                             item: '',
                             expense: 0,
                             paid: 0,
@@ -1958,8 +1958,8 @@
                     // 补充默认数据
                     for (let i = (displayData ? displayData.length : 0); i < 5; i++) {
                         const newRow = {
-                            dept: userDept,
-                            creator: username,
+                            dept: '',
+                            creator: '',
                             contractNo: '',
                             projectNo: '',
                             customer: '',
@@ -1981,14 +1981,14 @@
                 }
             } else if (isDeptManagerUser) {
                 // 部门负责人：只显示本部门的数据
-                displayData = allData.filter(e => e.dept === userDept);
+                displayData = allData.filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
                 
                 // 如果当前用户可见数据少于5行，补充空行
                 if (!displayData || displayData.length < 5) {
                     for (let i = (displayData ? displayData.length : 0); i < 5; i++) {
                         const newRow = {
-                            dept: userDept,
-                            creator: username,
+                            dept: '',
+                            creator: '',
                             contractNo: '',
                             projectNo: '',
                             customer: '',
@@ -2006,7 +2006,7 @@
                         };
                         allData.push(newRow);
                     }
-                    displayData = revenueData[m].filter(e => e.dept === userDept);
+                    displayData = revenueData[m].filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
                 }
             } else {
                 // 普通用户：只显示自己创建的数据
@@ -2016,8 +2016,8 @@
                 if (!displayData || displayData.length < 5) {
                     for (let i = (displayData ? displayData.length : 0); i < 5; i++) {
                         const newRow = {
-                            dept: userDept,
-                            creator: username,
+                            dept: '',
+                            creator: '',
                             contractNo: '',
                             projectNo: '',
                             customer: '',
@@ -2144,7 +2144,7 @@
             if (isAdmin) {
                 filteredData = revenueData[m];
             } else if (isDeptManager) {
-                filteredData = revenueData[m].filter(e => e.dept === userDept);
+                filteredData = revenueData[m].filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = revenueData[m].filter(e => e.creator === username || !e.creator);
             }
@@ -2191,7 +2191,7 @@
             if (isAdmin) {
                 displayData = revenueData[m] || [];
             } else if (isDeptManager) {
-                displayData = (revenueData[m] || []).filter(e => e.dept === userDept);
+                displayData = (revenueData[m] || []).filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 displayData = (revenueData[m] || []).filter(e => e.creator === username || !e.creator);
             }
@@ -2246,7 +2246,7 @@
                     filteredData = revenueData[m] || [];
                 }
             } else if (isDeptManager) {
-                filteredData = (revenueData[m] || []).filter(e => e.dept === userDept);
+                filteredData = (revenueData[m] || []).filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = (revenueData[m] || []).filter(e => e.creator === username || !e.creator);
             }
@@ -2282,7 +2282,7 @@
             if (isAdmin) {
                 filteredData = data;
             } else if (isDeptManager) {
-                filteredData = data.filter(e => e.dept === userDept);
+                filteredData = data.filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = data.filter(e => e.creator === username || !e.creator);
             }
@@ -2347,7 +2347,7 @@
             if (isAdmin) {
                 filteredData = data;
             } else if (isDeptManager) {
-                filteredData = data.filter(e => e.dept === userDept);
+                filteredData = data.filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = data.filter(e => e.creator === username || !e.creator);
             }
@@ -2389,7 +2389,7 @@
             for (let i = 0; i < data.length; i++) {
                 const row = data[i];
                 // 检查这行数据是否在草稿数据中
-                const isOwner = isAdmin || (isDeptManager && row.dept === userDept) || (row.creator === username);
+                const isOwner = isAdmin || (isDeptManager && (row.dept === userDept || !row.dept || row.dept.trim() === '')) || (row.creator === username || !row.creator);
                 if (isOwner && (!row.status || row.status === 'draft' || row.status === 'rejected')) {
                     data[i].status = 'submitted';
                     data[i].submittedAt = now;
@@ -2523,12 +2523,12 @@
             // 如果数据少于5行，补充到5行
             while (expenseData[m].length < 5) {
                 expenseData[m].push({
-                    dept: userDept,
+                    dept: '',
                     item: '',
                     expense: 0,
                     paid: 0,
                     note: '',
-                    creator: username,
+                    creator: '',
                     status: 'draft',
                     submittedAt: null,
                     submittedBy: null,
@@ -2556,7 +2556,7 @@
             if (isAdminUser) {
                 displayData = allData;
             } else if (isDeptManagerUser) {
-                displayData = allData.filter(e => e.dept === userDept);
+                displayData = allData.filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 displayData = allData.filter(e => e.creator === username || !e.creator);
             }
@@ -2668,7 +2668,7 @@
             if (isAdmin) {
                 filteredData = expenseData[m];
             } else if (isDeptManager) {
-                filteredData = expenseData[m].filter(e => e.dept === userDept);
+                filteredData = expenseData[m].filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = expenseData[m].filter(e => e.creator === username || !e.creator);
             }
@@ -2722,7 +2722,7 @@
             if (isAdmin) {
                 displayData = expenseData[m] || [];
             } else if (isDeptManager) {
-                displayData = (expenseData[m] || []).filter(e => e.dept === userDept);
+                displayData = (expenseData[m] || []).filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 displayData = (expenseData[m] || []).filter(e => e.creator === username || !e.creator);
             }
@@ -2778,7 +2778,7 @@
                     filteredData = expenseData[m] || [];
                 }
             } else if (isDeptManager) {
-                filteredData = (expenseData[m] || []).filter(e => e.dept === userDept);
+                filteredData = (expenseData[m] || []).filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = (expenseData[m] || []).filter(e => e.creator === username || !e.creator);
             }
@@ -2812,7 +2812,7 @@
             if (isAdmin) {
                 filteredData = expenseData[m] || [];
             } else if (isDeptManager) {
-                filteredData = (expenseData[m] || []).filter(e => e.dept === userDept);
+                filteredData = (expenseData[m] || []).filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = (expenseData[m] || []).filter(e => e.creator === username || !e.creator);
             }
@@ -2883,7 +2883,7 @@
             if (isAdmin) {
                 filteredData = data;
             } else if (isDeptManager) {
-                filteredData = data.filter(e => e.dept === userDept);
+                filteredData = data.filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
             } else {
                 filteredData = data.filter(e => e.creator === username || !e.creator);
             }
@@ -2919,7 +2919,7 @@
             const now = new Date().toISOString();
             for (let i = 0; i < data.length; i++) {
                 const row = data[i];
-                const isOwner = isAdmin || (isDeptManager && row.dept === userDept) || (row.creator === username);
+                const isOwner = isAdmin || (isDeptManager && (row.dept === userDept || !row.dept || row.dept.trim() === '')) || (row.creator === username || !row.creator);
                 if (isOwner && (!row.status || row.status === 'draft' || row.status === 'rejected')) {
                     data[i].status = 'submitted';
                     data[i].submittedAt = now;
@@ -2996,7 +2996,7 @@
                 const filtered = {};
                 for (let m = 0; m < 12; m++) {
                     if (revenueData[m]) {
-                        filtered[m] = revenueData[m].filter(e => e.dept === userDept);
+                        filtered[m] = revenueData[m].filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
                     }
                 }
                 return filtered;
@@ -3294,7 +3294,7 @@
                 const filtered = {};
                 for (let m = 0; m < 12; m++) {
                     if (expenseData[m]) {
-                        filtered[m] = expenseData[m].filter(e => e.dept === userDept);
+                        filtered[m] = expenseData[m].filter(e => e.dept === userDept || !e.dept || e.dept.trim() === '');
                     }
                 }
                 return filtered;
