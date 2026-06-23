@@ -1003,7 +1003,7 @@
             }
         }
 
-        // 安全的 localStorage 操作封装
+        // 安全的 localStorage 操作封装（同时读写 Supabase 云端）
         function safeGetItem(key) {
             if (!localStorageAvailable) return null;
             try {
@@ -1018,9 +1018,67 @@
             if (!localStorageAvailable) return false;
             try {
                 localStorage.setItem(key, value);
+                // 同时写入 Supabase 云端
+                saveToCloud(key, value);
                 return true;
             } catch (e) {
                 console.error('写入 localStorage 失败:', e);
+                return false;
+            }
+        }
+
+        // ==================== Supabase 云端数据同步 ====================
+        // 将数据保存到 Supabase 云端（异步，不阻塞界面）
+        async function saveToCloud(key, value) {
+            if (!supabaseReady || !db) {
+                console.log('Supabase 未就绪，跳过云端保存');
+                return;
+            }
+            try {
+                const { error } = await db
+                    .from('app_data')
+                    .upsert({ key: key, value: value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+                if (error) {
+                    console.error('云端保存失败:', error.message);
+                } else {
+                    console.log('云端保存成功:', key);
+                }
+            } catch (e) {
+                console.error('云端保存异常:', e);
+            }
+        }
+
+        // 从 Supabase 云端加载所有数据
+        async function loadFromCloud() {
+            if (!supabaseReady || !db) {
+                console.log('Supabase 未就绪，使用本地数据');
+                return false;
+            }
+            try {
+                const { data, error } = await db
+                    .from('app_data')
+                    .select('key, value, updated_at');
+                if (error) {
+                    console.error('云端加载失败:', error.message);
+                    return false;
+                }
+                if (data && data.length > 0) {
+                    // 用云端数据覆盖本地数据
+                    for (const row of data) {
+                        if (row.key && row.value) {
+                            try {
+                                localStorage.setItem(row.key, row.value);
+                                console.log('云端数据已同步到本地:', row.key);
+                            } catch (e) {
+                                console.error('同步到本地失败:', row.key, e);
+                            }
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                console.error('云端加载异常:', e);
                 return false;
             }
         }
@@ -1029,10 +1087,23 @@
             if (!localStorageAvailable) return false;
             try {
                 localStorage.removeItem(key);
+                // 同时从云端删除
+                removeFromCloud(key);
                 return true;
             } catch (e) {
                 console.error('删除 localStorage 失败:', e);
                 return false;
+            }
+        }
+
+        // 从 Supabase 云端删除数据
+        async function removeFromCloud(key) {
+            if (!supabaseReady || !db) return;
+            try {
+                await db.from('app_data').delete().eq('key', key);
+                console.log('云端删除成功:', key);
+            } catch (e) {
+                console.error('云端删除异常:', e);
             }
         }
 
@@ -1395,16 +1466,38 @@
                 document.getElementById('login-page').style.display = 'none';
                 document.getElementById('main-system').style.display = 'block';
 
-                // 更新界面
-                updateUI();
-                showToast('登录成功！欢迎 ' + currentUser.username, 'success');
-                
-                // 检测 localStorage 可用性
-                if (!localStorageAvailable) {
-                    showToast('警告：检测到您的浏览器未开启 LocalStorage，数据将无法保存！', 'error');
-                }
+                // 先从云端同步数据，再更新界面
+                syncCloudDataThenRender();
             } catch(e) {
                 showToast('登录出错: ' + e.message, 'error');
+            }
+        }
+
+        // 从云端同步数据后渲染界面
+        async function syncCloudDataThenRender() {
+            showToast('正在同步云端数据...', 'info');
+            const cloudLoaded = await loadFromCloud();
+            
+            // 同步完成后，重新加载本地数据到内存变量
+            revenueData = JSON.parse(safeGetItem('revenueData') || '{}');
+            expenseData = JSON.parse(safeGetItem('expenseData') || '{}');
+            for (let m = 0; m < 12; m++) {
+                if (!revenueData[m]) revenueData[m] = [];
+                if (!expenseData[m]) expenseData[m] = [];
+            }
+            initDefaultData();
+            
+            // 更新界面
+            updateUI();
+            if (cloudLoaded) {
+                showToast('登录成功！云端数据已同步', 'success');
+            } else {
+                showToast('登录成功！使用本地数据', 'success');
+            }
+            
+            // 检测 localStorage 可用性
+            if (!localStorageAvailable) {
+                showToast('警告：检测到您的浏览器未开启 LocalStorage，数据将无法保存！', 'error');
             }
         }
 
@@ -1434,10 +1527,14 @@
 
         // 清除所有旧数据并重置系统
         function clearAllData() {
-            if (confirm('确定要清除所有数据吗？这将删除所有已保存的预算数据和登录状态，此操作不可恢复！')) {
+            if (confirm('确定要清除所有数据吗？这将删除所有已保存的预算数据和登录状态（包括云端数据），此操作不可恢复！')) {
                 localStorage.removeItem('revenueData');
                 localStorage.removeItem('expenseData');
                 localStorage.removeItem('currentUser');
+                // 同时清除云端数据
+                removeFromCloud('revenueData');
+                removeFromCloud('expenseData');
+                removeFromCloud('currentUser');
                 revenueData = {};
                 expenseData = {};
                 for (let m = 0; m < 12; m++) {
@@ -1461,7 +1558,8 @@
                 isDeptManager = currentUser.isDeptManager || false;
                 document.getElementById('login-page').style.display = 'none';
                 document.getElementById('main-system').style.display = 'block';
-                updateUI();
+                // 自动登录时也同步云端数据
+                syncCloudDataThenRender();
             }
         }
 
