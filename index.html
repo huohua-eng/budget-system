@@ -2124,7 +2124,7 @@
             } else if (isDeptManager) {
                 filteredData = revenueData[m].filter(e => e.dept === userDept);
             } else {
-                filteredData = revenueData[m].filter(e => e.creator === username);
+                filteredData = revenueData[m].filter(e => e.creator === username || !e.creator);
             }
             
             console.log('filteredData.length=' + filteredData.length + ', index=' + index);
@@ -2134,6 +2134,11 @@
                 const originalIndex = revenueData[m].indexOf(filteredData[index]);
                 console.log('originalIndex=' + originalIndex);
                 if (originalIndex >= 0) {
+                    // 如果该行creator为空，自动认领为当前用户
+                    if (!revenueData[m][originalIndex].creator || revenueData[m][originalIndex].creator.trim() === '') {
+                        revenueData[m][originalIndex].creator = username;
+                        revenueData[m][originalIndex].dept = userDept;
+                    }
                     // 判断是否为需要保持原值的字段
                     if (field === 'deliveryType' || field === 'name' || field === 'customer' || field === 'contractNo' || field === 'projectNo' || field === 'projectNote' || field === 'productLine') {
                         revenueData[m][originalIndex][field] = value;
@@ -2166,7 +2171,7 @@
             } else if (isDeptManager) {
                 displayData = (revenueData[m] || []).filter(e => e.dept === userDept);
             } else {
-                displayData = (revenueData[m] || []).filter(e => e.creator === username);
+                displayData = (revenueData[m] || []).filter(e => e.creator === username || !e.creator);
             }
             
             const totalBudget = displayData.reduce((sum, r) => sum + (parseFloat(r.budget) || 0), 0);
@@ -2221,7 +2226,7 @@
             } else if (isDeptManager) {
                 filteredData = (revenueData[m] || []).filter(e => e.dept === userDept);
             } else {
-                filteredData = (revenueData[m] || []).filter(e => e.creator === username);
+                filteredData = (revenueData[m] || []).filter(e => e.creator === username || !e.creator);
             }
 
             if (filteredData[index]) {
@@ -2257,7 +2262,7 @@
             } else if (isDeptManager) {
                 filteredData = data.filter(e => e.dept === userDept);
             } else {
-                filteredData = data.filter(e => e.creator === username);
+                filteredData = data.filter(e => e.creator === username || !e.creator);
             }
             
             // 如果没有数据，提示用户添加数据
@@ -2322,7 +2327,7 @@
             } else if (isDeptManager) {
                 filteredData = data.filter(e => e.dept === userDept);
             } else {
-                filteredData = data.filter(e => e.creator === username);
+                filteredData = data.filter(e => e.creator === username || !e.creator);
             }
             
             // 过滤出草稿状态的数据
@@ -2643,12 +2648,17 @@
             } else if (isDeptManager) {
                 filteredData = expenseData[m].filter(e => e.dept === userDept);
             } else {
-                filteredData = expenseData[m].filter(e => e.creator === username);
+                filteredData = expenseData[m].filter(e => e.creator === username || !e.creator);
             }
             
             if (filteredData && filteredData[index]) {
                 const originalIndex = expenseData[m].indexOf(filteredData[index]);
                 if (originalIndex >= 0) {
+                    // 如果该行creator为空，自动认领为当前用户
+                    if (!expenseData[m][originalIndex].creator || expenseData[m][originalIndex].creator.trim() === '') {
+                        expenseData[m][originalIndex].creator = username;
+                        expenseData[m][originalIndex].dept = userDept;
+                    }
                     const row = expenseData[m][originalIndex];
                     const expenseValue = field === 'expense' ? value : (parseFloat(row.expense) || 0);
                     const paidValue = field === 'paid' ? value : (parseFloat(row.paid) || 0);
@@ -2692,7 +2702,7 @@
             } else if (isDeptManager) {
                 displayData = (expenseData[m] || []).filter(e => e.dept === userDept);
             } else {
-                displayData = (expenseData[m] || []).filter(e => e.creator === username);
+                displayData = (expenseData[m] || []).filter(e => e.creator === username || !e.creator);
             }
             
             const totalExpense = displayData.reduce((sum, e) => sum + (parseFloat(e.expense) || 0), 0);
@@ -2748,7 +2758,7 @@
             } else if (isDeptManager) {
                 filteredData = (expenseData[m] || []).filter(e => e.dept === userDept);
             } else {
-                filteredData = (expenseData[m] || []).filter(e => e.creator === username);
+                filteredData = (expenseData[m] || []).filter(e => e.creator === username || !e.creator);
             }
             
             if (filteredData && filteredData[index]) {
@@ -2782,7 +2792,7 @@
             } else if (isDeptManager) {
                 filteredData = (expenseData[m] || []).filter(e => e.dept === userDept);
             } else {
-                filteredData = (expenseData[m] || []).filter(e => e.creator === username);
+                filteredData = (expenseData[m] || []).filter(e => e.creator === username || !e.creator);
             }
             
             // 如果没有数据，提示用户添加数据
@@ -2853,7 +2863,7 @@
             } else if (isDeptManager) {
                 filteredData = data.filter(e => e.dept === userDept);
             } else {
-                filteredData = data.filter(e => e.creator === username);
+                filteredData = data.filter(e => e.creator === username || !e.creator);
             }
             
             // 过滤出草稿状态的数据
@@ -2974,7 +2984,7 @@
             const username = currentUser?.username || '';
             for (let m = 0; m < 12; m++) {
                 if (revenueData[m]) {
-                    filtered[m] = revenueData[m].filter(e => e.creator === username);
+                    filtered[m] = revenueData[m].filter(e => e.creator === username || !e.creator);
                 }
             }
             return filtered;
@@ -3272,7 +3282,7 @@
             const username = currentUser?.username || '';
             for (let m = 0; m < 12; m++) {
                 if (expenseData[m]) {
-                    filtered[m] = expenseData[m].filter(e => e.creator === username);
+                    filtered[m] = expenseData[m].filter(e => e.creator === username || !e.creator);
                 }
             }
             return filtered;
