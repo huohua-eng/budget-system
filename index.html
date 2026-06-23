@@ -766,6 +766,10 @@
                         </label>
                         <button class="btn" onclick="saveRevenueData()" style="background: #6c757d; color: white;">💾 保存草稿</button>
                         <button class="btn btn-primary" onclick="submitRevenueData()">📤 提交审核</button>
+                        <span id="revenue-admin-actions" style="display:none;">
+                            <button class="btn" onclick="approveAllRevenue()" style="background: #27ae60; color: white; margin-left: 10px;">✅ 全部通过</button>
+                            <button class="btn" onclick="showRejectRevenueDialog()" style="background: #e74c3c; color: white;">❌ 全部退回</button>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -828,6 +832,10 @@
                         </label>
                         <button class="btn" onclick="saveExpenseData()" style="background: #6c757d; color: white;">💾 保存草稿</button>
                         <button class="btn btn-primary" onclick="submitExpenseData()">📤 提交审核</button>
+                        <span id="expense-admin-actions" style="display:none;">
+                            <button class="btn" onclick="approveAllExpense()" style="background: #27ae60; color: white; margin-left: 10px;">✅ 全部通过</button>
+                            <button class="btn" onclick="showRejectExpenseDialog()" style="background: #e74c3c; color: white;">❌ 全部退回</button>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -1469,6 +1477,12 @@
                 el.style.display = isAdmin ? 'flex' : 'none';
             });
             
+            // 管理员批量审核按钮显示/隐藏
+            const revenueAdminActions = document.getElementById('revenue-admin-actions');
+            const expenseAdminActions = document.getElementById('expense-admin-actions');
+            if (revenueAdminActions) revenueAdminActions.style.display = isAdmin ? 'inline' : 'none';
+            if (expenseAdminActions) expenseAdminActions.style.display = isAdmin ? 'inline' : 'none';
+            
             // 收入预算页面只显示给管理员和解决方案与交付部的用户
             const userDept = currentUser?.department || '';
             const canViewRevenue = isAdmin || userDept === '解决方案与交付部';
@@ -2088,8 +2102,7 @@
                 // 管理员审核按钮（仅对已提交数据显示）
                 let actionHtml = '';
                 if (isAdmin && isSubmitted) {
-                    actionHtml = `<button class="btn-approve" onclick="approveRevenueRow(${index})" style="background:#27ae60;color:white;margin-right:3px;">通过</button>
-                                  <button class="btn-reject" onclick="rejectRevenueRow(${index})" style="background:#e74c3c;color:white;">退回</button>`;
+                    actionHtml = `<span style="color:#e67e22;font-weight:bold;">待审核</span>`;
                 } else if (isEditable) {
                     actionHtml = `<button class="btn-delete" onclick="deleteRevenueRow(${index})">删除</button>`;
                 } else {
@@ -2403,57 +2416,103 @@
             updateDashboard();
         }
         
-        // ==================== 管理员审核收入预算 ====================
-        function approveRevenueRow(index) {
+        // ==================== 管理员批量审核收入预算 ====================
+        function approveAllRevenue() {
             const m = currentMonth;
             const data = revenueData[m] || [];
-            const userDept = currentUser?.department || '';
+            const submittedData = data.filter(r => r.status === 'submitted');
             
-            // 管理员可以看到所有已提交的数据
-            const displayData = data.filter(r => r.status === 'submitted');
+            if (submittedData.length === 0) {
+                showToast('没有待审核的数据', 'error');
+                return;
+            }
             
-            if (displayData[index]) {
-                const originalIndex = data.indexOf(displayData[index]);
-                if (originalIndex >= 0) {
-                    const now = new Date().toISOString();
-                    revenueData[m][originalIndex].status = 'approved';
-                    revenueData[m][originalIndex].approvedAt = now;
-                    revenueData[m][originalIndex].approvedBy = currentUser.username;
-                    revenueData[m][originalIndex].rejectReason = null;
-                    
-                    safeSetItem('revenueData', JSON.stringify(revenueData));
-                    renderRevenueTable();
-                    showToast('审核通过！', 'success');
-                    updateDashboard();
+            if (!confirm('确定通过所有已提交的收入预算数据（共' + submittedData.length + '条）吗？')) return;
+            
+            const now = new Date().toISOString();
+            for (let i = 0; i < data.length; i++) {
+                if (data[i].status === 'submitted') {
+                    data[i].status = 'approved';
+                    data[i].approvedAt = now;
+                    data[i].approvedBy = currentUser.username;
+                    data[i].rejectReason = null;
                 }
             }
+            
+            safeSetItem('revenueData', JSON.stringify(revenueData));
+            renderRevenueTable();
+            showToast('已通过全部' + submittedData.length + '条收入预算数据', 'success');
+            updateDashboard();
         }
         
-        function rejectRevenueRow(index) {
+        function showRejectRevenueDialog() {
             const m = currentMonth;
             const data = revenueData[m] || [];
+            const submittedData = data.filter(r => r.status === 'submitted');
             
-            // 管理员可以看到所有已提交的数据
-            const displayData = data.filter(r => r.status === 'submitted');
-            
-            if (displayData[index]) {
-                const reason = prompt('请输入退回原因：');
-                if (reason === null) return; // 用户取消
-                
-                const originalIndex = data.indexOf(displayData[index]);
-                if (originalIndex >= 0) {
-                    const now = new Date().toISOString();
-                    revenueData[m][originalIndex].status = 'rejected';
-                    revenueData[m][originalIndex].approvedAt = now;
-                    revenueData[m][originalIndex].approvedBy = currentUser.username;
-                    revenueData[m][originalIndex].rejectReason = reason;
-                    
-                    safeSetItem('revenueData', JSON.stringify(revenueData));
-                    renderRevenueTable();
-                    showToast('已退回，数据可重新编辑', 'success');
-                    updateDashboard();
-                }
+            if (submittedData.length === 0) {
+                showToast('没有待审核的数据', 'error');
+                return;
             }
+            
+            // 显示自定义退回弹窗
+            const dialog = document.getElementById('reject-dialog');
+            document.getElementById('reject-dialog-title').textContent = '退回收入预算数据（共' + submittedData.length + '条）';
+            document.getElementById('reject-dialog-type').value = 'revenue';
+            document.getElementById('reject-reason-input').value = '';
+            dialog.style.display = 'flex';
+        }
+        
+        function confirmReject() {
+            const reason = document.getElementById('reject-reason-input').value.trim();
+            const type = document.getElementById('reject-dialog-type').value;
+            
+            if (!reason) {
+                showToast('请输入退回原因', 'error');
+                return;
+            }
+            
+            const m = currentMonth;
+            const now = new Date().toISOString();
+            
+            if (type === 'revenue') {
+                const data = revenueData[m] || [];
+                let count = 0;
+                for (let i = 0; i < data.length; i++) {
+                    if (data[i].status === 'submitted') {
+                        data[i].status = 'rejected';
+                        data[i].approvedAt = now;
+                        data[i].approvedBy = currentUser.username;
+                        data[i].rejectReason = reason;
+                        count++;
+                    }
+                }
+                safeSetItem('revenueData', JSON.stringify(revenueData));
+                renderRevenueTable();
+                showToast('已退回全部' + count + '条收入预算数据', 'success');
+            } else {
+                const data = expenseData[m] || [];
+                let count = 0;
+                for (let i = 0; i < data.length; i++) {
+                    if (data[i].status === 'submitted') {
+                        data[i].status = 'rejected';
+                        data[i].approvedAt = now;
+                        data[i].approvedBy = currentUser.username;
+                        data[i].rejectReason = reason;
+                        count++;
+                    }
+                }
+                safeSetItem('expenseData', JSON.stringify(expenseData));
+                renderExpenseTable();
+                showToast('已退回全部' + count + '条费用预算数据', 'success');
+            }
+            
+            document.getElementById('reject-dialog').style.display = 'none';
+            updateDashboard();
+        }
+        
+        function cancelReject() {
+            document.getElementById('reject-dialog').style.display = 'none';
         }
 
         // ==================== 费用与资金预算明细 ====================
@@ -2618,8 +2677,7 @@
                 // 管理员审核按钮
                 let actionHtml = '';
                 if (isAdmin && isSubmitted) {
-                    actionHtml = `<button class="btn-approve" onclick="approveExpenseRow(${index})" style="background:#27ae60;color:white;margin-right:3px;">通过</button>
-                                  <button class="btn-reject" onclick="rejectExpenseRow(${index})" style="background:#e74c3c;color:white;">退回</button>`;
+                    actionHtml = `<span style="color:#e67e22;font-weight:bold;">待审核</span>`;
                 } else if (isEditable) {
                     actionHtml = `<button class="btn-delete" onclick="deleteExpenseRow(${index})">删除</button>`;
                 } else {
@@ -2934,53 +2992,51 @@
         }
         
         // ==================== 管理员审核费用预算 ====================
-        function approveExpenseRow(index) {
+        // ==================== 管理员批量审核费用预算 ====================
+        function approveAllExpense() {
             const m = currentMonth;
             const data = expenseData[m] || [];
+            const submittedData = data.filter(r => r.status === 'submitted');
             
-            const displayData = data.filter(r => r.status === 'submitted');
+            if (submittedData.length === 0) {
+                showToast('没有待审核的数据', 'error');
+                return;
+            }
             
-            if (displayData[index]) {
-                const originalIndex = data.indexOf(displayData[index]);
-                if (originalIndex >= 0) {
-                    const now = new Date().toISOString();
-                    expenseData[m][originalIndex].status = 'approved';
-                    expenseData[m][originalIndex].approvedAt = now;
-                    expenseData[m][originalIndex].approvedBy = currentUser.username;
-                    expenseData[m][originalIndex].rejectReason = null;
-                    
-                    safeSetItem('expenseData', JSON.stringify(expenseData));
-                    renderExpenseTable();
-                    showToast('审核通过！', 'success');
-                    updateDashboard();
+            if (!confirm('确定通过所有已提交的费用预算数据（共' + submittedData.length + '条）吗？')) return;
+            
+            const now = new Date().toISOString();
+            for (let i = 0; i < data.length; i++) {
+                if (data[i].status === 'submitted') {
+                    data[i].status = 'approved';
+                    data[i].approvedAt = now;
+                    data[i].approvedBy = currentUser.username;
+                    data[i].rejectReason = null;
                 }
             }
+            
+            safeSetItem('expenseData', JSON.stringify(expenseData));
+            renderExpenseTable();
+            showToast('已通过全部' + submittedData.length + '条费用预算数据', 'success');
+            updateDashboard();
         }
         
-        function rejectExpenseRow(index) {
+        function showRejectExpenseDialog() {
             const m = currentMonth;
             const data = expenseData[m] || [];
+            const submittedData = data.filter(r => r.status === 'submitted');
             
-            const displayData = data.filter(r => r.status === 'submitted');
-            
-            if (displayData[index]) {
-                const reason = prompt('请输入退回原因：');
-                if (reason === null) return;
-                
-                const originalIndex = data.indexOf(displayData[index]);
-                if (originalIndex >= 0) {
-                    const now = new Date().toISOString();
-                    expenseData[m][originalIndex].status = 'rejected';
-                    expenseData[m][originalIndex].approvedAt = now;
-                    expenseData[m][originalIndex].approvedBy = currentUser.username;
-                    expenseData[m][originalIndex].rejectReason = reason;
-                    
-                    safeSetItem('expenseData', JSON.stringify(expenseData));
-                    renderExpenseTable();
-                    showToast('已退回，数据可重新编辑', 'success');
-                    updateDashboard();
-                }
+            if (submittedData.length === 0) {
+                showToast('没有待审核的数据', 'error');
+                return;
             }
+            
+            // 显示自定义退回弹窗
+            const dialog = document.getElementById('reject-dialog');
+            document.getElementById('reject-dialog-title').textContent = '退回费用预算数据（共' + submittedData.length + '条）';
+            document.getElementById('reject-dialog-type').value = 'expense';
+            document.getElementById('reject-reason-input').value = '';
+            dialog.style.display = 'flex';
         }
 
         // ==================== 收入数据导入导出 ====================
@@ -3687,5 +3743,21 @@
             checkLogin();
         };
     </script>
+
+    <!-- 自定义退回弹窗 -->
+    <div id="reject-dialog" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:center;">
+        <div style="background:white;border-radius:8px;padding:30px;width:400px;max-width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+            <h3 id="reject-dialog-title" style="margin:0 0 20px 0;color:#333;">退回数据</h3>
+            <input type="hidden" id="reject-dialog-type" value="">
+            <div style="margin-bottom:15px;">
+                <label style="display:block;margin-bottom:8px;color:#555;font-weight:bold;">退回原因：</label>
+                <textarea id="reject-reason-input" rows="4" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:14px;resize:vertical;box-sizing:border-box;" placeholder="请输入退回原因，提交人将看到此原因"></textarea>
+            </div>
+            <div style="text-align:right;">
+                <button onclick="cancelReject()" style="padding:10px 20px;margin-right:10px;background:#6c757d;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px;">取消</button>
+                <button onclick="confirmReject()" style="padding:10px 20px;background:#e74c3c;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px;">确认退回</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
