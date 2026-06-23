@@ -9,7 +9,7 @@
     <title>预算管理系统</title>
     <title>全面预算管理系统</title>
     <!-- Supabase SDK -->
-    <!-- Supabase SDK 已移除，改用 fetch REST API 直接调用，无需外部依赖 -->
+    <!-- 云端数据同步使用 Gitee API（国内可访问），无需外部SDK -->
     <style>
         * {
             margin: 0;
@@ -1018,7 +1018,7 @@
             if (!localStorageAvailable) return false;
             try {
                 localStorage.setItem(key, value);
-                // 同时写入 Supabase 云端
+                // 同时写入 Gitee 云端
                 saveToCloud(key, value);
                 return true;
             } catch (e) {
@@ -1027,54 +1027,103 @@
             }
         }
 
-        // ==================== Supabase 云端数据同步 ====================
-        // 将数据保存到 Supabase 云端（异步，不阻塞界面）
-        // 将数据保存到 Supabase 云端（使用 fetch REST API，无需外部SDK）
+        // ==================== Gitee 云端数据同步（国内可访问） ====================
+        // Gitee 配置：用 Gitee 仓库存储 JSON 数据文件，实现跨设备数据共享
+        // 需要在 Gitee 上创建仓库和 Personal Access Token
+        const GITEE_OWNER = 'budget-management-system';           // 你的 Gitee 用户名
+        const GITEE_REPO = 'budget-data';                    // 存放数据的仓库名（需先创建）
+        const GITEE_TOKEN = 'a5655760056fe87396437e1655fef92a';  // 你的 Gitee 令牌
+        const GITEE_BRANCH = 'master';                        // 分支名（Gitee默认分支）
+        const GITEE_API = 'https://gitee.com/api/v5';
+
+        // 将数据保存到 Gitee 云端（更新仓库中的 JSON 文件）
         async function saveToCloud(key, value) {
             try {
-                const response = await fetch(SUPABASE_URL + '/rest/v1/app_data', {
-                    method: 'POST',
-                    headers: SUPABASE_HEADERS,
-                    body: JSON.stringify({ key: key, value: value, updated_at: new Date().toISOString() })
+                const filePath = 'data/' + key + '.json';
+                const content = btoa(unescape(encodeURIComponent(value)));  // Base64编码，支持中文
+                
+                // 先查询文件是否已存在
+                const checkUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
+                const checkResp = await fetch(checkUrl, { method: 'GET' });
+                
+                let sha = null;
+                if (checkResp.ok) {
+                    const checkData = await checkResp.json();
+                    sha = checkData.sha;  // 文件已存在，获取SHA用于更新
+                }
+                
+                // 创建或更新文件
+                const body = {
+                    access_token: GITEE_TOKEN,
+                    content: content,
+                    message: '更新数据: ' + key + ' (' + new Date().toLocaleString('zh-CN') + ')',
+                    branch: GITEE_BRANCH
+                };
+                if (sha) {
+                    body.sha = sha;  // 更新已有文件需要提供SHA
+                }
+                
+                const saveUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath;
+                const saveResp = await fetch(saveUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
                 });
-                if (response.ok) {
+                
+                if (saveResp.ok) {
                     console.log('云端保存成功:', key);
                 } else {
-                    const errText = await response.text();
-                    console.error('云端保存失败:', response.status, errText);
+                    const errText = await saveResp.text();
+                    console.error('云端保存失败:', saveResp.status, errText);
                 }
             } catch (e) {
                 console.error('云端保存异常:', e);
             }
         }
 
-        // 从 Supabase 云端加载所有数据（使用 fetch REST API）
+        // 从 Gitee 云端加载所有数据
         async function loadFromCloud() {
             try {
-                const response = await fetch(SUPABASE_URL + '/rest/v1/app_data?select=key,value,updated_at', {
-                    method: 'GET',
-                    headers: {
-                        'apikey': SUPABASE_KEY,
-                        'Authorization': 'Bearer ' + SUPABASE_KEY
-                    }
-                });
-                if (!response.ok) {
-                    console.error('云端加载失败:', response.status);
+                // 获取 data 目录下的所有文件
+                const dirUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/data?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
+                const dirResp = await fetch(dirUrl, { method: 'GET' });
+                
+                if (!dirResp.ok) {
+                    console.error('云端目录加载失败:', dirResp.status);
                     return false;
                 }
-                const data = await response.json();
-                if (data && data.length > 0) {
-                    // 用云端数据覆盖本地数据
-                    for (const row of data) {
-                        if (row.key && row.value) {
-                            try {
-                                localStorage.setItem(row.key, row.value);
-                                console.log('云端数据已同步到本地:', row.key);
-                            } catch (e) {
-                                console.error('同步到本地失败:', row.key, e);
+                
+                const dirData = await dirResp.json();
+                if (!dirData || dirData.length === 0) {
+                    console.log('云端无数据文件');
+                    return false;
+                }
+                
+                // 逐个读取 JSON 文件
+                let syncCount = 0;
+                for (const file of dirData) {
+                    if (file.name && file.name.endsWith('.json')) {
+                        const key = file.name.replace('.json', '');
+                        try {
+                            // 获取文件内容
+                            const fileUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/data/' + file.name + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
+                            const fileResp = await fetch(fileUrl, { method: 'GET' });
+                            if (fileResp.ok) {
+                                const fileData = await fileResp.json();
+                                // Base64解码
+                                const value = decodeURIComponent(escape(atob(fileData.content)));
+                                localStorage.setItem(key, value);
+                                syncCount++;
+                                console.log('云端数据已同步到本地:', key);
                             }
+                        } catch (e) {
+                            console.error('同步文件失败:', file.name, e);
                         }
                     }
+                }
+                
+                if (syncCount > 0) {
+                    console.log('云端同步完成，共同步' + syncCount + '个文件');
                     return true;
                 }
                 return false;
@@ -1097,21 +1146,36 @@
             }
         }
 
-        // 从 Supabase 云端删除数据（使用 fetch REST API）
+        // 从 Gitee 云端删除数据文件
         async function removeFromCloud(key) {
             try {
-                const response = await fetch(SUPABASE_URL + '/rest/v1/app_data?key=eq.' + encodeURIComponent(key), {
-                    method: 'DELETE',
-                    headers: {
-                        'apikey': SUPABASE_KEY,
-                        'Authorization': 'Bearer ' + SUPABASE_KEY,
-                        'Prefer': 'return=minimal'
+                const filePath = 'data/' + key + '.json';
+                
+                // 先获取文件的SHA
+                const checkUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
+                const checkResp = await fetch(checkUrl, { method: 'GET' });
+                
+                if (checkResp.ok) {
+                    const checkData = await checkResp.json();
+                    const sha = checkData.sha;
+                    
+                    const deleteUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath;
+                    const deleteResp = await fetch(deleteUrl, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            access_token: GITEE_TOKEN,
+                            sha: sha,
+                            message: '删除数据: ' + key,
+                            branch: GITEE_BRANCH
+                        })
+                    });
+                    
+                    if (deleteResp.ok) {
+                        console.log('云端删除成功:', key);
+                    } else {
+                        console.error('云端删除失败:', deleteResp.status);
                     }
-                });
-                if (response.ok) {
-                    console.log('云端删除成功:', key);
-                } else {
-                    console.error('云端删除失败:', response.status);
                 }
             } catch (e) {
                 console.error('云端删除异常:', e);
@@ -1128,18 +1192,6 @@
 
         // ==================== 用户数据库 ====================
         // 角色说明：admin=管理员, dept_manager=部门负责人, normal=普通用户
-
-        // ==================== Supabase 云端配置（使用 fetch REST API，无需外部SDK） ====================
-        const SUPABASE_URL = 'https://ywqikpkxmjigsgngrxhx.supabase.co';
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3cWlrcGt4bWppZ3NnbmdyeGh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMTA3NzUsImV4cCI6MjA5NzY4Njc3NX0.mVr8B7Q06Pv8QgFoXHZX2wXAOvi07rEkt-41wSYwAnY';
-        
-        // Supabase REST API 请求头
-        const SUPABASE_HEADERS = {
-            'apikey': SUPABASE_KEY,
-            'Authorization': 'Bearer ' + SUPABASE_KEY,
-            'Content-Type': 'application/json',
-            'Prefer': 'resolution=merge-duplicates'
-        };
 
         const USERS = {
             '财务部': [
