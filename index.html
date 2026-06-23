@@ -9,7 +9,7 @@
     <title>预算管理系统</title>
     <title>全面预算管理系统</title>
     <!-- Supabase SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Supabase SDK 已移除，改用 fetch REST API 直接调用，无需外部依赖 -->
     <style>
         * {
             margin: 0;
@@ -1029,39 +1029,40 @@
 
         // ==================== Supabase 云端数据同步 ====================
         // 将数据保存到 Supabase 云端（异步，不阻塞界面）
+        // 将数据保存到 Supabase 云端（使用 fetch REST API，无需外部SDK）
         async function saveToCloud(key, value) {
-            if (!supabaseReady || !db) {
-                console.log('Supabase 未就绪，跳过云端保存');
-                return;
-            }
             try {
-                const { error } = await db
-                    .from('app_data')
-                    .upsert({ key: key, value: value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-                if (error) {
-                    console.error('云端保存失败:', error.message);
-                } else {
+                const response = await fetch(SUPABASE_URL + '/rest/v1/app_data', {
+                    method: 'POST',
+                    headers: SUPABASE_HEADERS,
+                    body: JSON.stringify({ key: key, value: value, updated_at: new Date().toISOString() })
+                });
+                if (response.ok) {
                     console.log('云端保存成功:', key);
+                } else {
+                    const errText = await response.text();
+                    console.error('云端保存失败:', response.status, errText);
                 }
             } catch (e) {
                 console.error('云端保存异常:', e);
             }
         }
 
-        // 从 Supabase 云端加载所有数据
+        // 从 Supabase 云端加载所有数据（使用 fetch REST API）
         async function loadFromCloud() {
-            if (!supabaseReady || !db) {
-                console.log('Supabase 未就绪，使用本地数据');
-                return false;
-            }
             try {
-                const { data, error } = await db
-                    .from('app_data')
-                    .select('key, value, updated_at');
-                if (error) {
-                    console.error('云端加载失败:', error.message);
+                const response = await fetch(SUPABASE_URL + '/rest/v1/app_data?select=key,value,updated_at', {
+                    method: 'GET',
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': 'Bearer ' + SUPABASE_KEY
+                    }
+                });
+                if (!response.ok) {
+                    console.error('云端加载失败:', response.status);
                     return false;
                 }
+                const data = await response.json();
                 if (data && data.length > 0) {
                     // 用云端数据覆盖本地数据
                     for (const row of data) {
@@ -1096,12 +1097,22 @@
             }
         }
 
-        // 从 Supabase 云端删除数据
+        // 从 Supabase 云端删除数据（使用 fetch REST API）
         async function removeFromCloud(key) {
-            if (!supabaseReady || !db) return;
             try {
-                await db.from('app_data').delete().eq('key', key);
-                console.log('云端删除成功:', key);
+                const response = await fetch(SUPABASE_URL + '/rest/v1/app_data?key=eq.' + encodeURIComponent(key), {
+                    method: 'DELETE',
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': 'Bearer ' + SUPABASE_KEY,
+                        'Prefer': 'return=minimal'
+                    }
+                });
+                if (response.ok) {
+                    console.log('云端删除成功:', key);
+                } else {
+                    console.error('云端删除失败:', response.status);
+                }
             } catch (e) {
                 console.error('云端删除异常:', e);
             }
@@ -1118,29 +1129,17 @@
         // ==================== 用户数据库 ====================
         // 角色说明：admin=管理员, dept_manager=部门负责人, normal=普通用户
 
-        // ==================== Supabase 配置 ====================
+        // ==================== Supabase 云端配置（使用 fetch REST API，无需外部SDK） ====================
         const SUPABASE_URL = 'https://ywqikpkxmjigsgngrxhx.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3cWlrcGt4bWppZ3NnbmdyeGh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMTA3NzUsImV4cCI6MjA5NzY4Njc3NX0.mVr8B7Q06Pv8QgFoXHZX2wXAOvi07rEkt-41wSYwAnY';
         
-        // 安全初始化 Supabase（延迟初始化，避免SDK未加载时报错）
-        let db = null;
-        let supabaseReady = false;
-        
-        // 在页面加载完成后初始化 Supabase
-        function initSupabaseWhenReady() {
-            if (window.supabase && window.supabase.createClient) {
-                try {
-                    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                    supabaseReady = true;
-                    console.log('Supabase 初始化成功');
-                } catch(e) {
-                    console.error('Supabase 初始化失败:', e);
-                }
-            } else {
-                // SDK还没加载，100ms后再试
-                setTimeout(initSupabaseWhenReady, 100);
-            }
-        }
+        // Supabase REST API 请求头
+        const SUPABASE_HEADERS = {
+            'apikey': SUPABASE_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates'
+        };
 
         const USERS = {
             '财务部': [
@@ -3836,8 +3835,6 @@
 
         // ==================== 初始化 ====================
         window.onload = function() {
-            // 初始化 Supabase（在页面加载完成后）
-            initSupabaseWhenReady();
             checkLogin();
         };
     </script>
