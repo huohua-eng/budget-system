@@ -1029,29 +1029,76 @@
 
         // ==================== Gitee 云端数据同步（国内可访问） ====================
         // Gitee 配置：用 Gitee 仓库存储 JSON 数据文件，实现跨设备数据共享
-        // 需要在 Gitee 上创建仓库和 Personal Access Token
-        const GITEE_OWNER = 'budget-management-system';           // 你的 Gitee 用户名
-        const GITEE_REPO = 'budget-data';                    // 存放数据的仓库名（需先创建）
-        const GITEE_TOKEN = 'a5655760056fe87396437e1655fef92a';  // 你的 Gitee 令牌
-        const GITEE_BRANCH = 'master';                        // 分支名（Gitee默认分支）
+        // 重要说明：Gitee API 不支持 CORS（跨域资源共享），浏览器从其他网站直接调用会被拦截
+        // 解决方案：通过 CORS 代理转发所有 API 请求，绕过浏览器跨域限制
+        const GITEE_OWNER = 'budget-management-system';
+        const GITEE_REPO = 'budget-data';
+        const GITEE_TOKEN = 'a5655760056fe87396437e1655fef92a';
+        const GITEE_BRANCH = 'master';
         const GITEE_API = 'https://gitee.com/api/v5';
 
-        // 将数据保存到 Gitee 云端（更新仓库中的 JSON 文件）
+        // CORS 代理配置（按优先级排列，自动切换）
+        // corsproxy.io：支持所有HTTP方法（GET/PUT/DELETE），全球CDN加速
+        const CORS_PROXIES = [
+            function(url) { return 'https://corsproxy.io/?' + encodeURIComponent(url); },
+            function(url) { return 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(url); }
+        ];
+
+        // 云端同步状态标记
+        let cloudSyncAvailable = false;
+
+        // 通过 CORS 代理发起 fetch 请求（自动尝试多个代理）
+        async function corsProxyFetch(url, options) {
+            // 第1步：尝试直接请求（如果部署在 Gitee 同域则无需代理）
+            try {
+                const directResp = await fetch(url, options);
+                if (directResp.ok) {
+                    cloudSyncAvailable = true;
+                    return directResp;
+                }
+            } catch (e) {
+                // 直接请求被 CORS 拦截，切换到代理模式
+            }
+
+            // 第2步：逐个尝试 CORS 代理
+            for (let i = 0; i < CORS_PROXIES.length; i++) {
+                try {
+                    const proxyUrl = CORS_PROXIES[i](url);
+                    const resp = await fetch(proxyUrl, options || {});
+                    if (resp.ok) {
+                        cloudSyncAvailable = true;
+                        console.log('CORS代理' + (i + 1) + '成功');
+                        return resp;
+                    }
+                    console.warn('CORS代理' + (i + 1) + '返回状态:', resp.status);
+                } catch (e) {
+                    console.warn('CORS代理' + (i + 1) + '连接失败:', e.message);
+                }
+            }
+            // 所有方式都失败
+            cloudSyncAvailable = false;
+            throw new Error('CORS代理均不可用');
+        }
+
+        // 将数据保存到 Gitee 云端
         async function saveToCloud(key, value) {
             try {
                 const filePath = 'data/' + key + '.json';
-                const content = btoa(unescape(encodeURIComponent(value)));  // Base64编码，支持中文
-                
-                // 先查询文件是否已存在
+                const content = btoa(unescape(encodeURIComponent(value)));
+
+                // 查询文件是否已存在（获取SHA用于更新）
                 const checkUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
-                const checkResp = await fetch(checkUrl, { method: 'GET' });
-                
                 let sha = null;
-                if (checkResp.ok) {
-                    const checkData = await checkResp.json();
-                    sha = checkData.sha;  // 文件已存在，获取SHA用于更新
+                try {
+                    const checkResp = await corsProxyFetch(checkUrl, { method: 'GET' });
+                    if (checkResp.ok) {
+                        const checkData = await checkResp.json();
+                        sha = checkData.sha;
+                    }
+                } catch (e) {
+                    console.warn('查询SHA失败，将尝试新建:', e.message);
                 }
-                
+
                 // 创建或更新文件
                 const body = {
                     access_token: GITEE_TOKEN,
@@ -1059,76 +1106,70 @@
                     message: '更新数据: ' + key + ' (' + new Date().toLocaleString('zh-CN') + ')',
                     branch: GITEE_BRANCH
                 };
-                if (sha) {
-                    body.sha = sha;  // 更新已有文件需要提供SHA
-                }
-                
+                if (sha) { body.sha = sha; }
+
                 const saveUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath;
-                const saveResp = await fetch(saveUrl, {
+                const saveResp = await corsProxyFetch(saveUrl, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-                
-                if (saveResp.ok) {
+
+                if (saveResp.ok || saveResp.status === 200 || saveResp.status === 201) {
                     console.log('云端保存成功:', key);
                 } else {
                     const errText = await saveResp.text();
-                    console.error('云端保存失败:', saveResp.status, errText);
+                    console.error('云端保存失败:', saveResp.status, errText.substring(0, 200));
                 }
             } catch (e) {
-                console.error('云端保存异常:', e);
+                console.error('云端保存异常:', e.message);
             }
         }
 
         // 从 Gitee 云端加载所有数据
         async function loadFromCloud() {
             try {
-                // 获取 data 目录下的所有文件
                 const dirUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/data?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
-                const dirResp = await fetch(dirUrl, { method: 'GET' });
-                
+                const dirResp = await corsProxyFetch(dirUrl, { method: 'GET' });
+
                 if (!dirResp.ok) {
                     console.error('云端目录加载失败:', dirResp.status);
                     return false;
                 }
-                
+
                 const dirData = await dirResp.json();
                 if (!dirData || dirData.length === 0) {
                     console.log('云端无数据文件');
                     return false;
                 }
-                
-                // 逐个读取 JSON 文件
+
                 let syncCount = 0;
                 for (const file of dirData) {
                     if (file.name && file.name.endsWith('.json')) {
                         const key = file.name.replace('.json', '');
                         try {
-                            // 获取文件内容
                             const fileUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/data/' + file.name + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
-                            const fileResp = await fetch(fileUrl, { method: 'GET' });
+                            const fileResp = await corsProxyFetch(fileUrl, { method: 'GET' });
                             if (fileResp.ok) {
                                 const fileData = await fileResp.json();
-                                // Base64解码
                                 const value = decodeURIComponent(escape(atob(fileData.content)));
                                 localStorage.setItem(key, value);
                                 syncCount++;
                                 console.log('云端数据已同步到本地:', key);
                             }
                         } catch (e) {
-                            console.error('同步文件失败:', file.name, e);
+                            console.error('同步文件失败:', file.name, e.message);
                         }
                     }
                 }
-                
+
                 if (syncCount > 0) {
                     console.log('云端同步完成，共同步' + syncCount + '个文件');
                     return true;
                 }
                 return false;
             } catch (e) {
-                console.error('云端加载异常:', e);
+                console.error('云端加载异常:', e.message);
                 return false;
             }
         }
@@ -1137,7 +1178,6 @@
             if (!localStorageAvailable) return false;
             try {
                 localStorage.removeItem(key);
-                // 同时从云端删除
                 removeFromCloud(key);
                 return true;
             } catch (e) {
@@ -1150,17 +1190,15 @@
         async function removeFromCloud(key) {
             try {
                 const filePath = 'data/' + key + '.json';
-                
-                // 先获取文件的SHA
                 const checkUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
-                const checkResp = await fetch(checkUrl, { method: 'GET' });
-                
+                const checkResp = await corsProxyFetch(checkUrl, { method: 'GET' });
+
                 if (checkResp.ok) {
                     const checkData = await checkResp.json();
                     const sha = checkData.sha;
-                    
+
                     const deleteUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath;
-                    const deleteResp = await fetch(deleteUrl, {
+                    const deleteResp = await corsProxyFetch(deleteUrl, {
                         method: 'DELETE',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1170,7 +1208,7 @@
                             branch: GITEE_BRANCH
                         })
                     });
-                    
+
                     if (deleteResp.ok) {
                         console.log('云端删除成功:', key);
                     } else {
@@ -1178,7 +1216,7 @@
                     }
                 }
             } catch (e) {
-                console.error('云端删除异常:', e);
+                console.error('云端删除异常:', e.message);
             }
         }
 
@@ -1528,7 +1566,7 @@
         async function syncCloudDataThenRender() {
             showToast('正在同步云端数据...', 'info');
             const cloudLoaded = await loadFromCloud();
-            
+
             // 同步完成后，重新加载本地数据到内存变量
             revenueData = JSON.parse(safeGetItem('revenueData') || '{}');
             expenseData = JSON.parse(safeGetItem('expenseData') || '{}');
@@ -1537,13 +1575,15 @@
                 if (!expenseData[m]) expenseData[m] = [];
             }
             initDefaultData();
-            
+
             // 更新界面
             updateUI();
             if (cloudLoaded) {
                 showToast('登录成功！云端数据已同步', 'success');
+            } else if (cloudSyncAvailable) {
+                showToast('登录成功！云端暂无数据，使用本地数据', 'success');
             } else {
-                showToast('登录成功！使用本地数据', 'success');
+                showToast('登录成功！云端同步暂不可用，使用本地数据', 'success');
             }
             
             // 检测 localStorage 可用性
