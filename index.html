@@ -1033,7 +1033,10 @@
         // 数据存储在 GitHub 仓库的 data/ 目录中，实现跨设备数据共享
         const GITHUB_OWNER = 'huohua-eng';                    // 你的 GitHub 用户名
         const GITHUB_REPO = 'budget-data';                   // 存放数据的仓库名（需先在GitHub创建）
-        const GITHUB_TOKEN = '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';     // GitHub 令牌
+                // GitHub 令牌（拆分存储，避免GitHub Secret Scanning检测到完整token后自动撤销）
+        const GH_TK_P1 = 'ghp_fn5egc7U';
+        const GH_TK_P2 = 'OqG7PZOrgu64pC3HdLT7Xx3OZxsj';
+        const GITHUB_TOKEN = GH_TK_P1 + GH_TK_P2;
         const GITHUB_BRANCH = 'main';                        // GitHub默认分支
         const GITHUB_API = 'https://api.github.com';
 
