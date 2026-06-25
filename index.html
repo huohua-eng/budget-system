@@ -1027,110 +1027,95 @@
             }
         }
 
-        // ==================== Gitee 云端数据同步（国内可访问） ====================
-        // Gitee 配置：用 Gitee 仓库存储 JSON 数据文件，实现跨设备数据共享
-        // 重要说明：Gitee API 不支持 CORS（跨域资源共享），浏览器从其他网站直接调用会被拦截
-        // 解决方案：通过 CORS 代理转发所有 API 请求，绕过浏览器跨域限制
-        const GITEE_OWNER = 'budget-management-system';
-        const GITEE_REPO = 'budget-data';
-        const GITEE_TOKEN = 'a5655760056fe87396437e1655fef92a';
-        const GITEE_BRANCH = 'master';
-        const GITEE_API = 'https://gitee.com/api/v5';
+        // ==================== GitHub 云端数据同步 ====================
+        // GitHub API 完全支持 CORS（Access-Control-Allow-Origin: *）
+        // 浏览器可以直接调用，不需要任何CORS代理，GET和PUT都能成功！
+        // 数据存储在 GitHub 仓库的 data/ 目录中，实现跨设备数据共享
+        const GITHUB_OWNER = 'huohua-eng';                    // 你的 GitHub 用户名
+        const GITHUB_REPO = 'budget-data';                   // 存放数据的仓库名（需先在GitHub创建）
+        const GITHUB_TOKEN = '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';     // GitHub 令牌
+        const GITHUB_BRANCH = 'main';                        // GitHub默认分支
+        const GITHUB_API = 'https://api.github.com';
 
-        // CORS 代理配置（按优先级排列，自动切换）
-        // corsproxy.io：支持所有HTTP方法（GET/PUT/DELETE），全球CDN加速
-        const CORS_PROXIES = [
-            function(url) { return 'https://corsproxy.io/?' + encodeURIComponent(url); },
-            function(url) { return 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(url); }
-        ];
-
-        // 云端同步状态标记
+        // 云端同步状态
         let cloudSyncAvailable = false;
 
-        // 通过 CORS 代理发起 fetch 请求（自动尝试多个代理）
-        async function corsProxyFetch(url, options) {
-            // 第1步：尝试直接请求（如果部署在 Gitee 同域则无需代理）
-            try {
-                const directResp = await fetch(url, options);
-                if (directResp.ok) {
-                    cloudSyncAvailable = true;
-                    return directResp;
-                }
-            } catch (e) {
-                // 直接请求被 CORS 拦截，切换到代理模式
-            }
-
-            // 第2步：逐个尝试 CORS 代理
-            for (let i = 0; i < CORS_PROXIES.length; i++) {
-                try {
-                    const proxyUrl = CORS_PROXIES[i](url);
-                    const resp = await fetch(proxyUrl, options || {});
-                    if (resp.ok) {
-                        cloudSyncAvailable = true;
-                        console.log('CORS代理' + (i + 1) + '成功');
-                        return resp;
-                    }
-                    console.warn('CORS代理' + (i + 1) + '返回状态:', resp.status);
-                } catch (e) {
-                    console.warn('CORS代理' + (i + 1) + '连接失败:', e.message);
-                }
-            }
-            // 所有方式都失败
-            cloudSyncAvailable = false;
-            throw new Error('CORS代理均不可用');
-        }
-
-        // 将数据保存到 Gitee 云端
+        // 将数据保存到 GitHub 云端（直接调用，无需代理）
         async function saveToCloud(key, value) {
+            if (GITHUB_TOKEN === 'GITHUB_TOKEN_PLACEHOLDER') {
+                console.warn('GitHub Token 未配置，云端保存跳过');
+                return;
+            }
             try {
                 const filePath = 'data/' + key + '.json';
                 const content = btoa(unescape(encodeURIComponent(value)));
 
                 // 查询文件是否已存在（获取SHA用于更新）
-                const checkUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
+                const checkUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + filePath + '?ref=' + GITHUB_BRANCH;
                 let sha = null;
                 try {
-                    const checkResp = await corsProxyFetch(checkUrl, { method: 'GET' });
+                    const checkResp = await fetch(checkUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': 'token ' + GITHUB_TOKEN,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
                     if (checkResp.ok) {
                         const checkData = await checkResp.json();
                         sha = checkData.sha;
                     }
                 } catch (e) {
-                    console.warn('查询SHA失败，将尝试新建:', e.message);
+                    console.warn('查询SHA失败:', e.message);
                 }
 
                 // 创建或更新文件
                 const body = {
-                    access_token: GITEE_TOKEN,
-                    content: content,
                     message: '更新数据: ' + key + ' (' + new Date().toLocaleString('zh-CN') + ')',
-                    branch: GITEE_BRANCH
+                    content: content,
+                    branch: GITHUB_BRANCH
                 };
                 if (sha) { body.sha = sha; }
 
-                const saveUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath;
-                const saveResp = await corsProxyFetch(saveUrl, {
+                const saveUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + filePath;
+                const saveResp = await fetch(saveUrl, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Authorization': 'token ' + GITHUB_TOKEN,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/vnd.github.v3+json'
+                    },
                     body: JSON.stringify(body)
                 });
 
                 if (saveResp.ok || saveResp.status === 200 || saveResp.status === 201) {
                     console.log('云端保存成功:', key);
+                    cloudSyncAvailable = true;
                 } else {
                     const errText = await saveResp.text();
-                    console.error('云端保存失败:', saveResp.status, errText.substring(0, 200));
+                    console.error('云端保存失败:', saveResp.status, errText.substring(0, 300));
                 }
             } catch (e) {
                 console.error('云端保存异常:', e.message);
             }
         }
 
-        // 从 Gitee 云端加载所有数据
+        // 从 GitHub 云端加载所有数据（直接调用，无需代理）
         async function loadFromCloud() {
+            if (GITHUB_TOKEN === 'GITHUB_TOKEN_PLACEHOLDER') {
+                console.warn('GitHub Token 未配置，云端加载跳过');
+                return false;
+            }
             try {
-                const dirUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/data?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
-                const dirResp = await corsProxyFetch(dirUrl, { method: 'GET' });
+                // 获取 data 目录下的所有文件列表
+                const dirUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/data?ref=' + GITHUB_BRANCH;
+                const dirResp = await fetch(dirUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': 'token ' + GITHUB_TOKEN,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
 
                 if (!dirResp.ok) {
                     console.error('云端目录加载失败:', dirResp.status);
@@ -1140,16 +1125,24 @@
                 const dirData = await dirResp.json();
                 if (!dirData || dirData.length === 0) {
                     console.log('云端无数据文件');
+                    cloudSyncAvailable = true;
                     return false;
                 }
 
+                // 逐个读取 JSON 文件
                 let syncCount = 0;
                 for (const file of dirData) {
                     if (file.name && file.name.endsWith('.json')) {
                         const key = file.name.replace('.json', '');
                         try {
-                            const fileUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/data/' + file.name + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
-                            const fileResp = await corsProxyFetch(fileUrl, { method: 'GET' });
+                            const fileUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/data/' + file.name + '?ref=' + GITHUB_BRANCH;
+                            const fileResp = await fetch(fileUrl, {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': 'token ' + GITHUB_TOKEN,
+                                    'Accept': 'application/vnd.github.v3+json'
+                                }
+                            });
                             if (fileResp.ok) {
                                 const fileData = await fileResp.json();
                                 const value = decodeURIComponent(escape(atob(fileData.content)));
@@ -1163,6 +1156,7 @@
                     }
                 }
 
+                cloudSyncAvailable = true;
                 if (syncCount > 0) {
                     console.log('云端同步完成，共同步' + syncCount + '个文件');
                     return true;
@@ -1186,26 +1180,36 @@
             }
         }
 
-        // 从 Gitee 云端删除数据文件
+        // 从 GitHub 云端删除数据文件
         async function removeFromCloud(key) {
+            if (GITHUB_TOKEN === 'GITHUB_TOKEN_PLACEHOLDER') { return; }
             try {
                 const filePath = 'data/' + key + '.json';
-                const checkUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath + '?ref=' + GITEE_BRANCH + '&access_token=' + GITEE_TOKEN;
-                const checkResp = await corsProxyFetch(checkUrl, { method: 'GET' });
+                const checkUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + filePath + '?ref=' + GITHUB_BRANCH;
+                const checkResp = await fetch(checkUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': 'token ' + GITHUB_TOKEN,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
 
                 if (checkResp.ok) {
                     const checkData = await checkResp.json();
                     const sha = checkData.sha;
 
-                    const deleteUrl = GITEE_API + '/repos/' + GITEE_OWNER + '/' + GITEE_REPO + '/contents/' + filePath;
-                    const deleteResp = await corsProxyFetch(deleteUrl, {
+                    const deleteUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + filePath;
+                    const deleteResp = await fetch(deleteUrl, {
                         method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Authorization': 'token ' + GITHUB_TOKEN,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/vnd.github.v3+json'
+                        },
                         body: JSON.stringify({
-                            access_token: GITEE_TOKEN,
-                            sha: sha,
                             message: '删除数据: ' + key,
-                            branch: GITEE_BRANCH
+                            sha: sha,
+                            branch: GITHUB_BRANCH
                         })
                     });
 
