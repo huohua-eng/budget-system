@@ -2224,66 +2224,47 @@
             // 获取当前用户部门
             const userDept = currentUser?.department || '销售部';
             
-            // 确保该月份的数据存在
-            if (!revenueData[m]) {
+            // 确保数据结构存在（不向底层数组添加空行，避免污染数据导致丢失）
+            if (!revenueData[m] || !Array.isArray(revenueData[m])) {
                 revenueData[m] = [];
             }
-            
-            const allData = revenueData[m];
 
-            // 权限过滤（严格隔离：每个角色只看自己权限范围内的数据）
+            const allData = revenueData[m];
             const username = currentUser?.username || '';
             const isAdminUser = isAdmin;
             const isDeptManagerUser = isDeptManager;
-
             let displayData;
 
             if (isAdminUser) {
-                // 管理员看所有数据：按部门分组排列，同一部门排在一起，空行排最后
-                const hasContent = allData.filter(e => {
+                // 管理员只看有实际数据的行（不显示空行草稿）
+                displayData = allData.filter(e => {
                     const bgt = parseFloat(e.budget) || 0;
                     return bgt > 0 || (e.productLine && e.productLine.trim()) || (e.customer && e.customer.trim()) || (e.projectNo && e.projectNo.trim()) || (e.name && e.name.trim()) || (e.projectNote && e.projectNote.trim());
                 });
-                const emptyRows = allData.filter(e => {
-                    const bgt = parseFloat(e.budget) || 0;
-                    return bgt === 0 && !(e.productLine && e.productLine.trim()) && !(e.customer && e.customer.trim()) && !(e.projectNo && e.projectNo.trim()) && !(e.name && e.name.trim()) && !(e.projectNote && e.projectNote.trim());
-                });
-                // 有内容的行按部门分组排序
+                // 按部门分组排序
                 const deptOrder = ['战略客户部', '客户销售部', '中大生态伙伴部', '小微生态伙伴部', '客户成功经营部', '解决方案与交付部', '人力资源部', '市场部', '财务部'];
-                hasContent.sort((a, b) => {
+                displayData.sort((a, b) => {
                     const aIdx = deptOrder.indexOf(a.dept);
                     const bIdx = deptOrder.indexOf(b.dept);
                     return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
                 });
-                displayData = [...hasContent, ...emptyRows];
             } else if (isDeptManagerUser) {
                 displayData = allData.filter(e => e.dept === userDept);  // 部门负责人只看本部门
             } else {
                 displayData = allData.filter(e => e.creator === username);  // 普通用户只看自己
             }
 
-            // 严格过滤后不足5行时，为当前用户补充空行草稿（不显示其他人的数据）
-            while (displayData.length < 5) {
-                const newRow = {
-                    dept: userDept,
-                    creator: username,
-                    contractNo: '',
-                    projectNo: '',
-                    customer: '',
-                    productLine: '',
-                    name: '',
-                    deliveryType: '实施',
-                    budget: 0,
-                    projectNote: '',
-                    status: 'draft',
-                    submittedAt: null,
-                    submittedBy: null,
-                    approvedAt: null,
-                    approvedBy: null,
-                    rejectReason: null
-                };
-                revenueData[m].push(newRow);
-                displayData.push(newRow);
+            // 非管理员用户：不足5行时补充空行草稿（仅添加到displayData视图，不写入底层数据数组）
+            if (!isAdminUser) {
+                while (displayData.length < 5) {
+                    displayData.push({
+                        dept: userDept, creator: username, contractNo: '', projectNo: '',
+                        customer: '', productLine: '', name: '', deliveryType: '实施',
+                        budget: 0, projectNote: '', status: 'draft',
+                        submittedAt: null, submittedBy: null, approvedAt: null,
+                        approvedBy: null, rejectReason: null
+                    });
+                }
             }
 
             // 注意：渲染时不调用safeSetItem，避免空数据覆盖云端已有数据
@@ -2384,10 +2365,13 @@
             
             console.log('userDept=' + userDept + ', isAdmin=' + isAdmin + ', isDeptManager=' + isDeptManager);
             
-            // 权限过滤：与 renderRevenueTable 保持一致
+            // 权限过滤：与 renderRevenueTable 保持一致（管理员只看有内容的行）
             let filteredData;
             if (isAdmin) {
-                filteredData = revenueData[m];
+                filteredData = (revenueData[m] || []).filter(e => {
+                    const bgt = parseFloat(e.budget) || 0;
+                    return bgt > 0 || (e.productLine && e.productLine.trim()) || (e.customer && e.customer.trim()) || (e.projectNo && e.projectNo.trim()) || (e.name && e.name.trim()) || (e.projectNote && e.projectNote.trim());
+                });
             } else if (isDeptManager) {
                 filteredData = revenueData[m].filter(e => e.dept === userDept);
             } else {
@@ -2401,8 +2385,8 @@
                 const originalIndex = revenueData[m].indexOf(filteredData[index]);
                 console.log('originalIndex=' + originalIndex);
                 if (originalIndex >= 0) {
-                    // 如果该行creator为空，自动认领为当前用户
-                    if (!revenueData[m][originalIndex].creator || revenueData[m][originalIndex].creator.trim() === '') {
+                    // 非管理员用户：如果该行creator为空，自动认领为当前用户（管理员不认领，保留原始数据归属）
+                    if (!isAdmin && (!revenueData[m][originalIndex].creator || revenueData[m][originalIndex].creator.trim() === '')) {
                         revenueData[m][originalIndex].creator = username;
                         revenueData[m][originalIndex].dept = userDept;
                     }
@@ -2431,16 +2415,19 @@
             const userDept = currentUser?.department || '销售部';
             const username = currentUser?.username || '';
             
-            // 重新计算当前用户可见的数据合计
+            // 重新计算当前用户可见的数据合计（管理员只计有内容的行）
             let displayData;
             if (isAdmin) {
-                displayData = revenueData[m] || [];
+                displayData = (revenueData[m] || []).filter(e => {
+                    const bgt = parseFloat(e.budget) || 0;
+                    return bgt > 0 || (e.productLine && e.productLine.trim()) || (e.customer && e.customer.trim()) || (e.projectNo && e.projectNo.trim()) || (e.name && e.name.trim()) || (e.projectNote && e.projectNote.trim());
+                });
             } else if (isDeptManager) {
                 displayData = (revenueData[m] || []).filter(e => e.dept === userDept);
             } else {
                 displayData = (revenueData[m] || []).filter(e => e.creator === username);
             }
-            
+
             const totalBudget = displayData.reduce((sum, r) => sum + (parseFloat(r.budget) || 0), 0);
             totalEl.textContent = formatNumber(totalBudget);
         }
@@ -2481,15 +2468,13 @@
             const userDept = currentUser?.department || '销售部';
             const username = currentUser?.username || '';
             
-            // 权限过滤：与 renderRevenueTable 保持一致
+            // 权限过滤：与 renderRevenueTable 保持一致（管理员只看有内容的行）
             let filteredData;
             if (isAdmin) {
-                // 管理员：显示其他用户金额>0的数据（与渲染逻辑一致）
-                filteredData = (revenueData[m] || []).filter(e => (parseFloat(e.budget) || 0) > 0);
-                // 如果没有金额>0的数据，则显示全部
-                if (filteredData.length === 0) {
-                    filteredData = revenueData[m] || [];
-                }
+                filteredData = (revenueData[m] || []).filter(e => {
+                    const bgt = parseFloat(e.budget) || 0;
+                    return bgt > 0 || (e.productLine && e.productLine.trim()) || (e.customer && e.customer.trim()) || (e.projectNo && e.projectNo.trim()) || (e.name && e.name.trim()) || (e.projectNote && e.projectNote.trim());
+                });
             } else if (isDeptManager) {
                 filteredData = (revenueData[m] || []).filter(e => e.dept === userDept);
             } else {
@@ -2825,31 +2810,10 @@
             const userDept = currentUser?.department || '销售部';
             const username = currentUser?.username || '';
             
-            // 强制初始化数据：确保每个月都有5行数据
+            // 确保数据结构存在（不向底层数组添加空行，避免污染数据导致丢失）
             if (!expenseData[m] || !Array.isArray(expenseData[m])) {
                 expenseData[m] = [];
             }
-            
-            // 如果数据少于5行，补充到5行
-            while (expenseData[m].length < 5) {
-                expenseData[m].push({
-                    dept: '',
-                    item: '',
-                    expense: 0,
-                    paid: 0,
-                    note: '',
-                    creator: '',
-                    status: 'draft',
-                    submittedAt: null,
-                    submittedBy: null,
-                    approvedAt: null,
-                    approvedBy: null,
-                    rejectReason: null
-                });
-            }
-
-            // 注意：渲染时不调用safeSetItem，避免空数据覆盖云端已有数据
-            // 数据保存只在用户主动操作（保存/提交/更新）时触发
 
             const allData = expenseData[m];
 
@@ -2860,49 +2824,43 @@
             let displayData;
 
             if (isAdminUser) {
-                // 管理员看所有数据：按部门分组排列，同一部门排在一起，空行排最后
-                const hasContent = allData.filter(e => {
+                // 管理员只看有实际数据的行（不显示空行草稿，避免看到只有部门没有金额的行）
+                displayData = allData.filter(e => {
                     const exp = parseFloat(e.expense) || 0;
                     const pd = parseFloat(e.paid) || 0;
                     return exp > 0 || pd > 0 || (e.item && e.item.trim()) || (e.note && e.note.trim());
                 });
-                const emptyRows = allData.filter(e => {
-                    const exp = parseFloat(e.expense) || 0;
-                    const pd = parseFloat(e.paid) || 0;
-                    return exp === 0 && pd === 0 && !(e.item && e.item.trim()) && !(e.note && e.note.trim());
-                });
-                // 有内容的行按部门分组排序
+                // 按部门分组排序
                 const deptOrder = ['战略客户部', '客户销售部', '中大生态伙伴部', '小微生态伙伴部', '客户成功经营部', '解决方案与交付部', '人力资源部', '市场部', '财务部'];
-                hasContent.sort((a, b) => {
+                displayData.sort((a, b) => {
                     const aIdx = deptOrder.indexOf(a.dept);
                     const bIdx = deptOrder.indexOf(b.dept);
                     return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
                 });
-                displayData = [...hasContent, ...emptyRows];
             } else if (isDeptManagerUser) {
                 displayData = allData.filter(e => e.dept === userDept);  // 部门负责人只看本部门
             } else {
                 displayData = allData.filter(e => e.creator === username);  // 普通用户只看自己
             }
 
-            // 严格过滤后不足5行时，为当前用户补充空行草稿（不显示其他人的数据）
-            while (displayData.length < 5) {
-                const newRow = {
-                    dept: userDept,
-                    item: '',
-                    expense: 0,
-                    paid: 0,
-                    note: '',
-                    creator: username,
-                    status: 'draft',
-                    submittedAt: null,
-                    submittedBy: null,
-                    approvedAt: null,
-                    approvedBy: null,
-                    rejectReason: null
-                };
-                expenseData[m].push(newRow);
-                displayData.push(newRow);
+            // 非管理员用户：不足5行时补充空行草稿（仅添加到displayData视图，不写入底层数据数组）
+            if (!isAdminUser) {
+                while (displayData.length < 5) {
+                    displayData.push({
+                        dept: userDept,
+                        item: '',
+                        expense: 0,
+                        paid: 0,
+                        note: '',
+                        creator: username,
+                        status: 'draft',
+                        submittedAt: null,
+                        submittedBy: null,
+                        approvedAt: null,
+                        approvedBy: null,
+                        rejectReason: null
+                    });
+                }
             }
 
             // 显示权限提示
@@ -2967,7 +2925,7 @@
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${index + 1}</td>
-                    <td>${getExpenseDeptSelect(row.dept || userDept, index, !isEditable)}</td>
+                    <td>${getExpenseDeptSelect(row.dept || '', index, !isEditable)}</td>
                     <td>${getExpenseItemSelect(row.item, index, row.dept, !isEditable)}</td>
                     <td><input type="text" value="${expenseVal}" placeholder="${placeholder}" oninput="updateExpense(${index}, 'expense', parseNumber(this.value))" ${disabledAttr}></td>
                     <td><input type="text" value="${paidVal}" placeholder="${placeholder}" oninput="updateExpense(${index}, 'paid', parseNumber(this.value))" ${disabledAttr}></td>
@@ -2998,10 +2956,14 @@
             const userDept = currentUser?.department || '';
             const username = currentUser?.username || '';
             
-            // 权限过滤：与 renderExpenseTable 保持一致
+            // 权限过滤：与 renderExpenseTable 保持一致（管理员只看有内容的行）
             let filteredData;
             if (isAdmin) {
-                filteredData = expenseData[m];
+                filteredData = (expenseData[m] || []).filter(e => {
+                    const exp = parseFloat(e.expense) || 0;
+                    const pd = parseFloat(e.paid) || 0;
+                    return exp > 0 || pd > 0 || (e.item && e.item.trim()) || (e.note && e.note.trim());
+                });
             } else if (isDeptManager) {
                 filteredData = expenseData[m].filter(e => e.dept === userDept);
             } else {
@@ -3011,8 +2973,8 @@
             if (filteredData && filteredData[index]) {
                 const originalIndex = expenseData[m].indexOf(filteredData[index]);
                 if (originalIndex >= 0) {
-                    // 如果该行creator为空，自动认领为当前用户
-                    if (!expenseData[m][originalIndex].creator || expenseData[m][originalIndex].creator.trim() === '') {
+                    // 非管理员用户：如果该行creator为空，自动认领为当前用户（管理员不认领，保留原始数据归属）
+                    if (!isAdmin && (!expenseData[m][originalIndex].creator || expenseData[m][originalIndex].creator.trim() === '')) {
                         expenseData[m][originalIndex].creator = username;
                         expenseData[m][originalIndex].dept = userDept;
                     }
@@ -3052,16 +3014,20 @@
             const userDept = currentUser?.department || '';
             const username = currentUser?.username || '';
             
-            // 重新计算当前用户可见的数据合计
+            // 重新计算当前用户可见的数据合计（管理员只计有内容的行）
             let displayData;
             if (isAdmin) {
-                displayData = expenseData[m] || [];
+                displayData = (expenseData[m] || []).filter(e => {
+                    const exp = parseFloat(e.expense) || 0;
+                    const pd = parseFloat(e.paid) || 0;
+                    return exp > 0 || pd > 0 || (e.item && e.item.trim()) || (e.note && e.note.trim());
+                });
             } else if (isDeptManager) {
                 displayData = (expenseData[m] || []).filter(e => e.dept === userDept);
             } else {
                 displayData = (expenseData[m] || []).filter(e => e.creator === username);
             }
-            
+
             const totalExpense = displayData.reduce((sum, e) => sum + (parseFloat(e.expense) || 0), 0);
             const totalPaid = displayData.reduce((sum, e) => sum + (parseFloat(e.paid) || 0), 0);
             expenseTotalEl.textContent = formatNumber(totalExpense);
@@ -3103,10 +3069,14 @@
             const userDept = currentUser?.department || '';
             const username = currentUser?.username || '';
             
-            // 权限过滤：严格隔离，与 renderExpenseTable 保持一致
+            // 权限过滤：严格隔离，与 renderExpenseTable 保持一致（管理员只看有内容的行）
             let filteredData;
             if (isAdmin) {
-                filteredData = expenseData[m] || [];  // 管理员看所有数据
+                filteredData = (expenseData[m] || []).filter(e => {
+                    const exp = parseFloat(e.expense) || 0;
+                    const pd = parseFloat(e.paid) || 0;
+                    return exp > 0 || pd > 0 || (e.item && e.item.trim()) || (e.note && e.note.trim());
+                });
             } else if (isDeptManager) {
                 filteredData = (expenseData[m] || []).filter(e => e.dept === userDept);  // 部门负责人只看本部门
             } else {
