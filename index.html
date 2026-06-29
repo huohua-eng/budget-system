@@ -611,6 +611,7 @@
             <div class="user-info">
                 <div class="name" id="display-name">-</div>
                 <div class="role" id="display-role">-</div>
+                <button onclick="manualSyncCloud()" style="margin-top:8px;padding:4px 12px;background:#27ae60;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;width:100%;">同步云端数据</button>
             </div>
             
             <div class="nav-item admin-only" data-page="dashboard">
@@ -1046,6 +1047,8 @@
 
         // 云端同步状态
         let cloudSyncAvailable = false;
+        // 云端同步锁：loadFromCloud完成前，禁止saveToCloud写入云端（防止空数据覆盖已有数据）
+        let cloudSyncReady = false;
 
         // 设置 GitHub Token（由登录页面调用）
         function setGitHubToken(token) {
@@ -1063,6 +1066,8 @@
         async function saveToCloud(key, value) {
             const token = getGitHubToken();
             if (!token) { console.warn('GitHub Token 未输入，云端保存跳过'); return; }
+            // 云端同步锁：loadFromCloud完成前，禁止写入云端（防止空数据覆盖已有数据）
+            if (!cloudSyncReady) { console.warn('云端同步尚未完成，跳过云端保存防止覆盖:', key); return; }
             try {
                 const filePath = 'data/' + key + '.json';
                 const content = btoa(unescape(encodeURIComponent(value)));
@@ -1144,11 +1149,13 @@
                     return false;
                 }
 
-                // 逐个读取 JSON 文件
+                // 逐个读取 JSON 文件（跳过currentUser，避免覆盖当前用户登录状态）
                 let syncCount = 0;
                 for (const file of dirData) {
                     if (file.name && file.name.endsWith('.json')) {
                         const key = file.name.replace('.json', '');
+                        // currentUser不应从云端加载（每个用户的登录状态不同）
+                        if (key === 'currentUser') { console.log('跳过currentUser云端同步（保留当前用户登录状态）'); continue; }
                         try {
                             const fileUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/data/' + file.name + '?ref=' + GITHUB_BRANCH;
                             const fileResp = await fetch(fileUrl, {
@@ -1590,8 +1597,8 @@
                     role: user.role
                 };
 
-                // 保存登录状态
-                safeSetItem('currentUser', JSON.stringify(currentUser));
+                // 保存登录状态（仅本地，不同步到云端，避免覆盖其他用户的登录信息）
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
 
                 // 显示主系统
                 document.getElementById('login-page').style.display = 'none';
@@ -1608,6 +1615,9 @@
         async function syncCloudDataThenRender() {
             showToast('正在同步云端数据...', 'info');
             const cloudLoaded = await loadFromCloud();
+
+            // 云端同步完成，解锁saveToCloud（允许后续操作写入云端）
+            cloudSyncReady = true;
 
             // 同步完成后，重新加载本地数据到内存变量
             revenueData = JSON.parse(safeGetItem('revenueData') || '{}');
@@ -1631,6 +1641,31 @@
             // 检测 localStorage 可用性
             if (!localStorageAvailable) {
                 showToast('警告：检测到您的浏览器未开启 LocalStorage，数据将无法保存！', 'error');
+            }
+        }
+
+        // 手动同步云端数据（管理员点击"同步云端数据"按钮时调用）
+        async function manualSyncCloud() {
+            showToast('正在同步云端数据...', 'info');
+            const cloudLoaded = await loadFromCloud();
+
+            // 重新加载本地数据到内存变量
+            revenueData = JSON.parse(safeGetItem('revenueData') || '{}');
+            expenseData = JSON.parse(safeGetItem('expenseData') || '{}');
+            for (let m = 0; m < 12; m++) {
+                if (!revenueData[m]) revenueData[m] = [];
+                if (!expenseData[m]) expenseData[m] = [];
+            }
+            initDefaultData();
+
+            // 更新界面
+            updateUI();
+            if (cloudLoaded) {
+                showToast('云端数据已同步！', 'success');
+            } else if (cloudSyncAvailable) {
+                showToast('云端暂无新数据', 'success');
+            } else {
+                showToast('云端同步暂不可用', 'error');
             }
         }
 
@@ -2281,8 +2316,8 @@
                 }
             }
 
-            // 保存数据
-            safeSetItem('revenueData', JSON.stringify(revenueData));
+            // 注意：渲染时不调用safeSetItem，避免空数据覆盖云端已有数据
+            // 数据保存只在用户主动操作（保存/提交/更新）时触发
 
             // 显示权限提示
             if (isAdminUser) {
@@ -2824,10 +2859,10 @@
                     rejectReason: null
                 });
             }
-            
-            // 保存到localStorage
-            safeSetItem('expenseData', JSON.stringify(expenseData));
-            
+
+            // 注意：渲染时不调用safeSetItem，避免空数据覆盖云端已有数据
+            // 数据保存只在用户主动操作（保存/提交/更新）时触发
+
             const allData = expenseData[m];
 
             // 权限判断
@@ -2852,10 +2887,9 @@
             if (!displayData || displayData.length < 5) {
                 displayData = allData;
             }
-            
-            // 保存数据
-            safeSetItem('expenseData', JSON.stringify(expenseData));
-            
+
+            // 注意：渲染时不调用safeSetItem，避免空数据覆盖云端已有数据
+
             // 显示权限提示
             if (isAdminUser) {
                 document.getElementById('expense-tip').style.display = 'none';
