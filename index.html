@@ -1018,7 +1018,7 @@
             if (!localStorageAvailable) return false;
             try {
                 localStorage.setItem(key, value);
-                // 同时写入 Gitee 云端
+                // 同时写入 GitHub 云端
                 saveToCloud(key, value);
                 return true;
             } catch (e) {
@@ -1028,25 +1028,36 @@
         }
 
         // ==================== GitHub 云端数据同步 ====================
-        // GitHub API 完全支持 CORS（Access-Control-Allow-Origin: *）
-        // 浏览器可以直接调用，不需要任何CORS代理，GET和PUT都能成功！
+        // GitHub API 完全支持 CORS，浏览器可以直接调用
+        // Token不在代码中硬编码（避免GitHub Secret Scanning检测并撤销）
+        // Token由用户在登录页面手动输入，所有用户共享同一个Token
         // 数据存储在 GitHub 仓库的 data/ 目录中，实现跨设备数据共享
         const GITHUB_OWNER = 'huohua-eng';                    // 你的 GitHub 用户名
         const GITHUB_REPO = 'budget-data';                   // 存放数据的仓库名
         // GitHub 令牌（Base64编码存储，避免GitHub Secret Scanning检测到并自动撤销）
-        const GITHUB_TOKEN = atob('Z2hwX2ZuNWVnYzdV') + atob('T3FHN1BaT3JndTY0cEMzSGRMVDdYeDNPWnhzag==');
-        const GITHUB_BRANCH = 'main';                        // GitHub默认分支
+        let GITHUB_TOKEN = '';  // Token在登录时由用户输入，不在代码中硬编码
+        const GITHUB_BRANCH = 'main';
         const GITHUB_API = 'https://api.github.com';
 
         // 云端同步状态
         let cloudSyncAvailable = false;
 
+        // 设置 GitHub Token（由登录页面调用）
+        function setGitHubToken(token) {
+            GITHUB_TOKEN = token;
+            if (token) { sessionStorage.setItem('gh_token', token); }
+        }
+
+        // 获取 GitHub Token（优先从sessionStorage恢复）
+        function getGitHubToken() {
+            if (!GITHUB_TOKEN) { GITHUB_TOKEN = sessionStorage.getItem('gh_token') || ''; }
+            return GITHUB_TOKEN;
+        }
+
         // 将数据保存到 GitHub 云端（直接调用，无需代理）
         async function saveToCloud(key, value) {
-            if (GITHUB_TOKEN === 'GITHUB_TOKEN_PLACEHOLDER') {
-                console.warn('GitHub Token 未配置，云端保存跳过');
-                return;
-            }
+            const token = getGitHubToken();
+            if (!token) { console.warn('GitHub Token 未输入，云端保存跳过'); return; }
             try {
                 const filePath = 'data/' + key + '.json';
                 const content = btoa(unescape(encodeURIComponent(value)));
@@ -1058,7 +1069,7 @@
                     const checkResp = await fetch(checkUrl, {
                         method: 'GET',
                         headers: {
-                            'Authorization': 'token ' + GITHUB_TOKEN,
+                            'Authorization': 'token ' + token,
                             'Accept': 'application/vnd.github.v3+json'
                         }
                     });
@@ -1082,7 +1093,7 @@
                 const saveResp = await fetch(saveUrl, {
                     method: 'PUT',
                     headers: {
-                        'Authorization': 'token ' + GITHUB_TOKEN,
+                        'Authorization': 'token ' + token,
                         'Content-Type': 'application/json',
                         'Accept': 'application/vnd.github.v3+json'
                     },
@@ -1103,17 +1114,15 @@
 
         // 从 GitHub 云端加载所有数据（直接调用，无需代理）
         async function loadFromCloud() {
-            if (GITHUB_TOKEN === 'GITHUB_TOKEN_PLACEHOLDER') {
-                console.warn('GitHub Token 未配置，云端加载跳过');
-                return false;
-            }
+            const token = getGitHubToken();
+            if (!token) { console.warn('GitHub Token 未输入，云端加载跳过'); return false; }
             try {
                 // 获取 data 目录下的所有文件列表
                 const dirUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/data?ref=' + GITHUB_BRANCH;
                 const dirResp = await fetch(dirUrl, {
                     method: 'GET',
                     headers: {
-                        'Authorization': 'token ' + GITHUB_TOKEN,
+                        'Authorization': 'token ' + token,
                         'Accept': 'application/vnd.github.v3+json'
                     }
                 });
@@ -1140,7 +1149,7 @@
                             const fileResp = await fetch(fileUrl, {
                                 method: 'GET',
                                 headers: {
-                                    'Authorization': 'token ' + GITHUB_TOKEN,
+                                    'Authorization': 'token ' + token,
                                     'Accept': 'application/vnd.github.v3+json'
                                 }
                             });
@@ -1183,14 +1192,14 @@
 
         // 从 GitHub 云端删除数据文件
         async function removeFromCloud(key) {
-            if (GITHUB_TOKEN === 'GITHUB_TOKEN_PLACEHOLDER') { return; }
+            const token = getGitHubToken(); if (!token) { return; }
             try {
                 const filePath = 'data/' + key + '.json';
                 const checkUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + filePath + '?ref=' + GITHUB_BRANCH;
                 const checkResp = await fetch(checkUrl, {
                     method: 'GET',
                     headers: {
-                        'Authorization': 'token ' + GITHUB_TOKEN,
+                        'Authorization': 'token ' + token,
                         'Accept': 'application/vnd.github.v3+json'
                     }
                 });
@@ -1203,7 +1212,7 @@
                     const deleteResp = await fetch(deleteUrl, {
                         method: 'DELETE',
                         headers: {
-                            'Authorization': 'token ' + GITHUB_TOKEN,
+                            'Authorization': 'token ' + token,
                             'Content-Type': 'application/json',
                             'Accept': 'application/vnd.github.v3+json'
                         },
@@ -1513,6 +1522,11 @@
                 var department = departmentSelect.value.trim().replace(/\0/g, '');
                 var username = usernameSelect.value;
                 var password = passwordInput.value;
+                var tokenInput = document.getElementById('login-token');
+                var token = tokenInput ? tokenInput.value.trim() : '';
+
+                // 设置云端同步Token
+                if (token) { setGitHubToken(token); }
 
                 // 验证输入
                 if (!department) {
@@ -1601,7 +1615,8 @@
             currentUser = null;
             isAdmin = false;
             isDeptManager = false;
-            safeRemoveItem('currentUser');
+            localStorage.removeItem('currentUser');
+            sessionStorage.removeItem('currentUser');
             // 重置登录表单 - 使用原生DOM API确保一致性
             const deptSelect = document.getElementById('login-department');
             const nameSelect = document.getElementById('login-username');
@@ -1647,16 +1662,12 @@
         }
 
         function checkLogin() {
-            const savedUser = safeGetItem('currentUser');
-            if (savedUser) {
-                currentUser = JSON.parse(savedUser);
-                isAdmin = currentUser.isAdmin;
-                isDeptManager = currentUser.isDeptManager || false;
-                document.getElementById('login-page').style.display = 'none';
-                document.getElementById('main-system').style.display = 'block';
-                // 自动登录时也同步云端数据
-                syncCloudDataThenRender();
-            }
+            // 不自动登录，每次打开页面都显示登录页面
+            // 避免不同用户在同一台电脑上看到上一个用户的登录状态
+            // 用户需要每次手动选择部门、姓名、密码登录
+            // 如果sessionStorage中有token，恢复它以便云端同步
+            const savedToken = sessionStorage.getItem('gh_token');
+            if (savedToken) { GITHUB_TOKEN = savedToken; }
         }
 
         // ==================== 界面更新 ====================
