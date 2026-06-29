@@ -1125,7 +1125,11 @@
         // 从 GitHub 云端加载所有数据（直接调用，无需代理）
         async function loadFromCloud() {
             const token = getGitHubToken();
-            if (!token) { console.warn('GitHub Token 未输入，云端加载跳过'); return false; }
+            if (!token) {
+                console.warn('GitHub Token 未输入，云端加载跳过');
+                showToast('未输入云端同步密钥，请在登录时输入', 'error');
+                return false;
+            }
             try {
                 // 获取 data 目录下的所有文件列表
                 const dirUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/data?ref=' + GITHUB_BRANCH;
@@ -1138,7 +1142,19 @@
                 });
 
                 if (!dirResp.ok) {
-                    console.error('云端目录加载失败:', dirResp.status);
+                    const status = dirResp.status;
+                    if (status === 401 || status === 403) {
+                        console.error('GitHub Token 无效或已过期:', status);
+                        showToast('云端密钥无效或已过期，请重新创建Token并在登录时输入', 'error');
+                    } else if (status === 404) {
+                        console.error('数据仓库不存在或data目录未创建:', status);
+                        // 404可能是仓库还没创建data目录，不算失败
+                        cloudSyncAvailable = true;
+                        return false;
+                    } else {
+                        console.error('云端目录加载失败:', status);
+                        showToast('云端同步失败（错误码:' + status + '），请稍后重试', 'error');
+                    }
                     return false;
                 }
 
@@ -2223,7 +2239,7 @@
             let displayData;
 
             if (isAdminUser) {
-                // 管理员看所有数据，有内容的行排在前面，空行排在最后
+                // 管理员看所有数据：按部门分组排列，同一部门排在一起，空行排最后
                 const hasContent = allData.filter(e => {
                     const bgt = parseFloat(e.budget) || 0;
                     return bgt > 0 || (e.productLine && e.productLine.trim()) || (e.customer && e.customer.trim()) || (e.projectNo && e.projectNo.trim()) || (e.name && e.name.trim()) || (e.projectNote && e.projectNote.trim());
@@ -2231,6 +2247,13 @@
                 const emptyRows = allData.filter(e => {
                     const bgt = parseFloat(e.budget) || 0;
                     return bgt === 0 && !(e.productLine && e.productLine.trim()) && !(e.customer && e.customer.trim()) && !(e.projectNo && e.projectNo.trim()) && !(e.name && e.name.trim()) && !(e.projectNote && e.projectNote.trim());
+                });
+                // 有内容的行按部门分组排序
+                const deptOrder = ['战略客户部', '客户销售部', '中大生态伙伴部', '小微生态伙伴部', '客户成功经营部', '解决方案与交付部', '人力资源部', '市场部', '财务部'];
+                hasContent.sort((a, b) => {
+                    const aIdx = deptOrder.indexOf(a.dept);
+                    const bIdx = deptOrder.indexOf(b.dept);
+                    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
                 });
                 displayData = [...hasContent, ...emptyRows];
             } else if (isDeptManagerUser) {
@@ -2837,7 +2860,7 @@
             let displayData;
 
             if (isAdminUser) {
-                // 管理员看所有数据，有内容的行排在前面，空行排在最后
+                // 管理员看所有数据：按部门分组排列，同一部门排在一起，空行排最后
                 const hasContent = allData.filter(e => {
                     const exp = parseFloat(e.expense) || 0;
                     const pd = parseFloat(e.paid) || 0;
@@ -2847,6 +2870,13 @@
                     const exp = parseFloat(e.expense) || 0;
                     const pd = parseFloat(e.paid) || 0;
                     return exp === 0 && pd === 0 && !(e.item && e.item.trim()) && !(e.note && e.note.trim());
+                });
+                // 有内容的行按部门分组排序
+                const deptOrder = ['战略客户部', '客户销售部', '中大生态伙伴部', '小微生态伙伴部', '客户成功经营部', '解决方案与交付部', '人力资源部', '市场部', '财务部'];
+                hasContent.sort((a, b) => {
+                    const aIdx = deptOrder.indexOf(a.dept);
+                    const bIdx = deptOrder.indexOf(b.dept);
+                    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
                 });
                 displayData = [...hasContent, ...emptyRows];
             } else if (isDeptManagerUser) {
