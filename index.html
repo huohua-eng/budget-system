@@ -1445,68 +1445,86 @@
 
         // 初始化默认数据
         function initDefaultData() {
-            // 收入数据 - 每个月份默认5行空数据
-            // 强制初始化5行，确保用户能看到
+            // 收入数据 - 每个月份确保至少5行数据
+            // 重要：只补充空行，不覆盖已有数据（保留其他用户提交的金额等字段）
             for (let m = 0; m < 12; m++) {
-                // 如果数据不存在、少于5行或creator字段不完整，都重新初始化
                 const existingData = revenueData[m] || [];
-                const needInit = existingData.length < 5 || 
-                    existingData.some(row => !row.hasOwnProperty('creator') || !row.hasOwnProperty('status'));
-                
-                if (needInit) {
-                    const emptyRows = [];
-                    for (let i = 0; i < 5; i++) {
-                        emptyRows.push({
-                            dept: '',
-                            contractNo: '',
-                            projectNo: '',
-                            customer: '',
-                            productLine: '',
-                            name: '',
-                            deliveryType: '实施',
-                            budget: 0,
-                            projectNote: '',
-                            creator: '',
-                            status: 'draft',
-                            submittedAt: null,
-                            submittedBy: null,
-                            approvedAt: null,
-                            approvedBy: null,
-                            rejectReason: null
-                        });
-                    }
-                    revenueData[m] = emptyRows;
+                // 只在数据完全不存在时才初始化，不覆盖已有数据
+                if (!revenueData[m] || revenueData[m].length === 0) {
+                    revenueData[m] = [];
                 }
+                // 补充空行到至少5行（不删除已有数据）
+                while (revenueData[m].length < 5) {
+                    revenueData[m].push({
+                        dept: '',
+                        contractNo: '',
+                        projectNo: '',
+                        customer: '',
+                        productLine: '',
+                        name: '',
+                        deliveryType: '实施',
+                        budget: 0,
+                        projectNote: '',
+                        creator: '',
+                        status: 'draft',
+                        submittedAt: null,
+                        submittedBy: null,
+                        approvedAt: null,
+                        approvedBy: null,
+                        rejectReason: null
+                    });
+                }
+                // 为缺少字段的行补充字段（不覆盖已有值）
+                revenueData[m].forEach(row => {
+                    if (!row.hasOwnProperty('creator')) { row.creator = ''; }
+                    if (!row.hasOwnProperty('status')) { row.status = 'draft'; }
+                    if (!row.hasOwnProperty('dept')) { row.dept = ''; }
+                    if (!row.hasOwnProperty('budget')) { row.budget = 0; }
+                    if (!row.hasOwnProperty('submittedAt')) { row.submittedAt = null; }
+                    if (!row.hasOwnProperty('submittedBy')) { row.submittedBy = null; }
+                    if (!row.hasOwnProperty('approvedAt')) { row.approvedAt = null; }
+                    if (!row.hasOwnProperty('approvedBy')) { row.approvedBy = null; }
+                    if (!row.hasOwnProperty('rejectReason')) { row.rejectReason = null; }
+                });
             }
-            
-            // 费用数据 - 每个月份默认5行空数据（与收入预算逻辑一致）
-            // 强制初始化5行，确保用户能看到
+
+            // 费用数据 - 每个月份确保至少5行数据（与收入预算逻辑一致）
             for (let m = 0; m < 12; m++) {
-                // 如果数据不存在、少于5行或creator字段不完整，都重新初始化
                 const existingData = expenseData[m] || [];
-                const needInit = existingData.length < 5 || 
-                    existingData.some(row => !row.hasOwnProperty('creator') || !row.hasOwnProperty('status'));
-                
-                if (needInit) {
-                    const emptyRows = [];
-                    for (let i = 0; i < 5; i++) {
-                        emptyRows.push({
-                            dept: '',
-                            item: '',
-                            expense: 0,
-                            paid: 0,
-                            note: '',
-                            creator: '',
-                            status: 'draft',
-                            submittedAt: null,
-                            submittedBy: null,
-                            approvedAt: null,
-                            approvedBy: null,
-                            rejectReason: null
-                        });
-                    }
-                    expenseData[m] = emptyRows;
+                // 只在数据完全不存在时才初始化，不覆盖已有数据
+                if (!expenseData[m] || expenseData[m].length === 0) {
+                    expenseData[m] = [];
                 }
+                // 补充空行到至少5行（不删除已有数据）
+                while (expenseData[m].length < 5) {
+                    expenseData[m].push({
+                        dept: '',
+                        item: '',
+                        expense: 0,
+                        paid: 0,
+                        note: '',
+                        creator: '',
+                        status: 'draft',
+                        submittedAt: null,
+                        submittedBy: null,
+                        approvedAt: null,
+                        approvedBy: null,
+                        rejectReason: null
+                    });
+                }
+                // 为缺少字段的行补充字段（不覆盖已有值）
+                expenseData[m].forEach(row => {
+                    if (!row.hasOwnProperty('creator')) { row.creator = ''; }
+                    if (!row.hasOwnProperty('status')) { row.status = 'draft'; }
+                    if (!row.hasOwnProperty('dept')) { row.dept = ''; }
+                    if (!row.hasOwnProperty('expense')) { row.expense = 0; }
+                    if (!row.hasOwnProperty('paid')) { row.paid = 0; }
+                    if (!row.hasOwnProperty('submittedAt')) { row.submittedAt = null; }
+                    if (!row.hasOwnProperty('submittedBy')) { row.submittedBy = null; }
+                    if (!row.hasOwnProperty('approvedAt')) { row.approvedAt = null; }
+                    if (!row.hasOwnProperty('approvedBy')) { row.approvedBy = null; }
+                    if (!row.hasOwnProperty('rejectReason')) { row.rejectReason = null; }
+                });
             }
         }
         initDefaultData();
