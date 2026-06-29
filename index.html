@@ -2223,7 +2223,16 @@
             let displayData;
 
             if (isAdminUser) {
-                displayData = allData;  // 管理员看所有数据
+                // 管理员看所有数据，有内容的行排在前面，空行排在最后
+                const hasContent = allData.filter(e => {
+                    const bgt = parseFloat(e.budget) || 0;
+                    return bgt > 0 || (e.productLine && e.productLine.trim()) || (e.customer && e.customer.trim()) || (e.projectNo && e.projectNo.trim()) || (e.name && e.name.trim()) || (e.projectNote && e.projectNote.trim());
+                });
+                const emptyRows = allData.filter(e => {
+                    const bgt = parseFloat(e.budget) || 0;
+                    return bgt === 0 && !(e.productLine && e.productLine.trim()) && !(e.customer && e.customer.trim()) && !(e.projectNo && e.projectNo.trim()) && !(e.name && e.name.trim()) && !(e.projectNote && e.projectNote.trim());
+                });
+                displayData = [...hasContent, ...emptyRows];
             } else if (isDeptManagerUser) {
                 displayData = allData.filter(e => e.dept === userDept);  // 部门负责人只看本部门
             } else {
@@ -2565,18 +2574,30 @@
                 filteredData = data.filter(e => e.creator === username);
             }
             
-            // 过滤出草稿状态的数据
-            const draftData = filteredData.filter(r => !r.status || r.status === 'draft' || r.status === 'rejected');
-            
+            // 过滤出草稿状态且有实际内容的数据（空行不提交）
+            const draftData = filteredData.filter(r => {
+                if (!r.status || r.status === 'draft' || r.status === 'rejected') {
+                    // 判断是否有实际内容：预算金额大于0，或有产品线，或有客户，或有项目号，或有项目说明
+                    const budgetAmt = parseFloat(r.budget) || 0;
+                    const hasProductLine = r.productLine && r.productLine.trim() !== '';
+                    const hasCustomer = r.customer && r.customer.trim() !== '';
+                    const hasProjectNo = r.projectNo && r.projectNo.trim() !== '';
+                    const hasName = r.name && r.name.trim() !== '';
+                    const hasNote = r.projectNote && r.projectNote.trim() !== '';
+                    return budgetAmt > 0 || hasProductLine || hasCustomer || hasProjectNo || hasName || hasNote;
+                }
+                return false;
+            });
+
             if (draftData.length === 0) {
-                showToast('没有可提交的草稿数据', 'error');
+                showToast('没有可提交的数据（空行无需提交）', 'error');
                 return;
             }
-            
+
             // 验证必填项
             for (let i = 0; i < draftData.length; i++) {
                 const row = draftData[i];
-                
+
                 if ((row.budget || 0) > 0) {
                     if (!row.productLine || row.productLine.trim() === '') {
                         showToast('第' + (i + 1) + '行：本月收款预算金额大于0时，产品线为必填项', 'error');
@@ -2596,14 +2617,21 @@
                     }
                 }
             }
-            
-            // 更新状态为已提交
+
+            // 更新状态为已提交（仅提交有内容的行，空行保持草稿）
             const now = new Date().toISOString();
             for (let i = 0; i < data.length; i++) {
                 const row = data[i];
-                // 检查这行数据是否在草稿数据中
                 const isOwner = isAdmin || (isDeptManager && row.dept === userDept) || (row.creator === username);
-                if (isOwner && (!row.status || row.status === 'draft' || row.status === 'rejected')) {
+                // 判断该行是否有实际内容
+                const budgetAmt = parseFloat(row.budget) || 0;
+                const hasProductLine = row.productLine && row.productLine.trim() !== '';
+                const hasCustomer = row.customer && row.customer.trim() !== '';
+                const hasProjectNo = row.projectNo && row.projectNo.trim() !== '';
+                const hasName = row.name && row.name.trim() !== '';
+                const hasNote = row.projectNote && row.projectNote.trim() !== '';
+                const hasContent = budgetAmt > 0 || hasProductLine || hasCustomer || hasProjectNo || hasName || hasNote;
+                if (isOwner && hasContent && (!row.status || row.status === 'draft' || row.status === 'rejected')) {
                     data[i].status = 'submitted';
                     data[i].submittedAt = now;
                     data[i].submittedBy = username;
@@ -2809,7 +2837,18 @@
             let displayData;
 
             if (isAdminUser) {
-                displayData = allData;  // 管理员看所有数据
+                // 管理员看所有数据，有内容的行排在前面，空行排在最后
+                const hasContent = allData.filter(e => {
+                    const exp = parseFloat(e.expense) || 0;
+                    const pd = parseFloat(e.paid) || 0;
+                    return exp > 0 || pd > 0 || (e.item && e.item.trim()) || (e.note && e.note.trim());
+                });
+                const emptyRows = allData.filter(e => {
+                    const exp = parseFloat(e.expense) || 0;
+                    const pd = parseFloat(e.paid) || 0;
+                    return exp === 0 && pd === 0 && !(e.item && e.item.trim()) && !(e.note && e.note.trim());
+                });
+                displayData = [...hasContent, ...emptyRows];
             } else if (isDeptManagerUser) {
                 displayData = allData.filter(e => e.dept === userDept);  // 部门负责人只看本部门
             } else {
@@ -3149,20 +3188,30 @@
                 filteredData = data.filter(e => e.creator === username);
             }
             
-            // 过滤出草稿状态的数据
-            const draftData = filteredData.filter(r => !r.status || r.status === 'draft' || r.status === 'rejected');
-            
+            // 过滤出草稿状态且有实际内容的数据（空行不提交）
+            const draftData = filteredData.filter(r => {
+                if (!r.status || r.status === 'draft' || r.status === 'rejected') {
+                    // 判断是否有实际内容：费用金额或付现金额大于0，或有费用项目，或有备注
+                    const expenseAmt = parseFloat(r.expense) || 0;
+                    const paidAmt = parseFloat(r.paid) || 0;
+                    const hasItem = r.item && r.item.trim() !== '';
+                    const hasNote = r.note && r.note.trim() !== '';
+                    return expenseAmt > 0 || paidAmt > 0 || hasItem || hasNote;
+                }
+                return false;
+            });
+
             if (draftData.length === 0) {
-                showToast('没有可提交的草稿数据', 'error');
+                showToast('没有可提交的数据（空行无需提交）', 'error');
                 return;
             }
-            
+
             // 验证必填项
             for (let i = 0; i < draftData.length; i++) {
                 const row = draftData[i];
                 const expenseAmt = parseFloat(row.expense) || 0;
                 const paidAmt = parseFloat(row.paid) || 0;
-                
+
                 if (expenseAmt > 0 || paidAmt > 0) {
                     if (!row.dept || row.dept.trim() === '') {
                         showToast('第' + (i + 1) + '行：费用金额或付现金额大于0时，部门为必填项', 'error');
@@ -3175,13 +3224,19 @@
                     }
                 }
             }
-            
-            // 更新状态为已提交
+
+            // 更新状态为已提交（仅提交有内容的行，空行保持草稿）
             const now = new Date().toISOString();
             for (let i = 0; i < data.length; i++) {
                 const row = data[i];
                 const isOwner = isAdmin || (isDeptManager && row.dept === userDept) || (row.creator === username);
-                if (isOwner && (!row.status || row.status === 'draft' || row.status === 'rejected')) {
+                // 判断该行是否有实际内容
+                const expenseAmt = parseFloat(row.expense) || 0;
+                const paidAmt = parseFloat(row.paid) || 0;
+                const hasItem = row.item && row.item.trim() !== '';
+                const hasNote = row.note && row.note.trim() !== '';
+                const hasContent = expenseAmt > 0 || paidAmt > 0 || hasItem || hasNote;
+                if (isOwner && hasContent && (!row.status || row.status === 'draft' || row.status === 'rejected')) {
                     data[i].status = 'submitted';
                     data[i].submittedAt = now;
                     data[i].submittedBy = username;
