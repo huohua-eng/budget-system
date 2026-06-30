@@ -1063,14 +1063,65 @@
         }
 
         // 将数据保存到 GitHub 云端（直接调用，无需代理）
+        // 判断费用行是否为空行草稿（无实际内容）
+        function isExpenseRowEmpty(row) {
+            const exp = parseFloat(row.expense) || 0;
+            const pd = parseFloat(row.paid) || 0;
+            const hasItem = row.item && row.item.trim();
+            const hasNote = row.note && row.note.trim();
+            return exp === 0 && pd === 0 && !hasItem && !hasNote;
+        }
+
+        // 判断收入行是否为空行草稿（无实际内容）
+        function isRevenueRowEmpty(row) {
+            const bgt = parseFloat(row.budget) || 0;
+            const hasProductLine = row.productLine && row.productLine.trim();
+            const hasCustomer = row.customer && row.customer.trim();
+            const hasProjectNo = row.projectNo && row.projectNo.trim();
+            const hasName = row.name && row.name.trim();
+            const hasNote = row.projectNote && row.projectNote.trim();
+            return bgt === 0 && !hasProductLine && !hasCustomer && !hasProjectNo && !hasName && !hasNote;
+        }
+
+        // 清理数据中的空行草稿（仅过滤draft状态的空行，保留已提交/已通过等有状态的数据）
+        function cleanEmptyDraftRows(dataObj, isExpense) {
+            const cleaned = {};
+            for (let m = 0; m < 12; m++) {
+                if (!dataObj[m] || !Array.isArray(dataObj[m])) {
+                    cleaned[m] = [];
+                    continue;
+                }
+                cleaned[m] = dataObj[m].filter(row => {
+                    // 已提交/已通过/已退回的数据一律保留
+                    if (row.status && row.status !== 'draft') return true;
+                    // draft状态：只保留有实际内容的行
+                    if (isExpense) return !isExpenseRowEmpty(row);
+                    else return !isRevenueRowEmpty(row);
+                });
+            }
+            return cleaned;
+        }
+
         async function saveToCloud(key, value) {
             const token = getGitHubToken();
             if (!token) { console.warn('GitHub Token 未输入，云端保存跳过'); return; }
             // 云端同步锁：loadFromCloud完成前，禁止写入云端（防止空数据覆盖已有数据）
             if (!cloudSyncReady) { console.warn('云端同步尚未完成，跳过云端保存防止覆盖:', key); return; }
             try {
+                // 保存到云端前，过滤掉空行草稿（防止空行污染云端数据）
+                let cloudValue = value;
+                if (key === 'expenseData') {
+                    const parsed = JSON.parse(value);
+                    const cleaned = cleanEmptyDraftRows(parsed, true);
+                    cloudValue = JSON.stringify(cleaned);
+                } else if (key === 'revenueData') {
+                    const parsed = JSON.parse(value);
+                    const cleaned = cleanEmptyDraftRows(parsed, false);
+                    cloudValue = JSON.stringify(cleaned);
+                }
+
                 const filePath = 'data/' + key + '.json';
-                const content = btoa(unescape(encodeURIComponent(value)));
+                const content = btoa(unescape(encodeURIComponent(cloudValue)));
 
                 // 查询文件是否已存在（获取SHA用于更新）
                 const checkUrl = GITHUB_API + '/repos/' + GITHUB_OWNER + '/' + GITHUB_REPO + '/contents/' + filePath + '?ref=' + GITHUB_BRANCH;
@@ -1468,34 +1519,10 @@
 
         // 初始化默认数据
         function initDefaultData() {
-            // 收入数据 - 每个月份确保至少5行数据
-            // 重要：只补充空行，不覆盖已有数据（保留其他用户提交的金额等字段）
+            // 收入数据 - 只确保数据结构存在，不强制补充空行（空行由渲染函数按需补充）
             for (let m = 0; m < 12; m++) {
-                const existingData = revenueData[m] || [];
-                // 只在数据完全不存在时才初始化，不覆盖已有数据
-                if (!revenueData[m] || revenueData[m].length === 0) {
+                if (!revenueData[m]) {
                     revenueData[m] = [];
-                }
-                // 补充空行到至少5行（不删除已有数据）
-                while (revenueData[m].length < 5) {
-                    revenueData[m].push({
-                        dept: '',
-                        contractNo: '',
-                        projectNo: '',
-                        customer: '',
-                        productLine: '',
-                        name: '',
-                        deliveryType: '实施',
-                        budget: 0,
-                        projectNote: '',
-                        creator: '',
-                        status: 'draft',
-                        submittedAt: null,
-                        submittedBy: null,
-                        approvedAt: null,
-                        approvedBy: null,
-                        rejectReason: null
-                    });
                 }
                 // 为缺少字段的行补充字段（不覆盖已有值）
                 revenueData[m].forEach(row => {
@@ -1511,29 +1538,10 @@
                 });
             }
 
-            // 费用数据 - 每个月份确保至少5行数据（与收入预算逻辑一致）
+            // 费用数据 - 只确保数据结构存在，不强制补充空行（空行由渲染函数按需补充）
             for (let m = 0; m < 12; m++) {
-                const existingData = expenseData[m] || [];
-                // 只在数据完全不存在时才初始化，不覆盖已有数据
-                if (!expenseData[m] || expenseData[m].length === 0) {
+                if (!expenseData[m]) {
                     expenseData[m] = [];
-                }
-                // 补充空行到至少5行（不删除已有数据）
-                while (expenseData[m].length < 5) {
-                    expenseData[m].push({
-                        dept: '',
-                        item: '',
-                        expense: 0,
-                        paid: 0,
-                        note: '',
-                        creator: '',
-                        status: 'draft',
-                        submittedAt: null,
-                        submittedBy: null,
-                        approvedAt: null,
-                        approvedBy: null,
-                        rejectReason: null
-                    });
                 }
                 // 为缺少字段的行补充字段（不覆盖已有值）
                 expenseData[m].forEach(row => {
@@ -2254,16 +2262,18 @@
                 displayData = allData.filter(e => e.creator === username);  // 普通用户只看自己
             }
 
-            // 非管理员用户：不足5行时补充空行草稿（仅添加到displayData视图，不写入底层数据数组）
+            // 非管理员用户：不足5行时补充空行草稿（写入底层数据数组以便用户输入，但渲染时不调用safeSetItem）
             if (!isAdminUser) {
                 while (displayData.length < 5) {
-                    displayData.push({
+                    const newRow = {
                         dept: userDept, creator: username, contractNo: '', projectNo: '',
                         customer: '', productLine: '', name: '', deliveryType: '实施',
                         budget: 0, projectNote: '', status: 'draft',
                         submittedAt: null, submittedBy: null, approvedAt: null,
                         approvedBy: null, rejectReason: null
-                    });
+                    };
+                    revenueData[m].push(newRow);
+                    displayData.push(newRow);
                 }
             }
 
@@ -2843,10 +2853,10 @@
                 displayData = allData.filter(e => e.creator === username);  // 普通用户只看自己
             }
 
-            // 非管理员用户：不足5行时补充空行草稿（仅添加到displayData视图，不写入底层数据数组）
+            // 非管理员用户：不足5行时补充空行草稿（写入底层数据数组以便用户输入，但渲染时不调用safeSetItem）
             if (!isAdminUser) {
                 while (displayData.length < 5) {
-                    displayData.push({
+                    const newRow = {
                         dept: userDept,
                         item: '',
                         expense: 0,
@@ -2859,7 +2869,9 @@
                         approvedAt: null,
                         approvedBy: null,
                         rejectReason: null
-                    });
+                    };
+                    expenseData[m].push(newRow);
+                    displayData.push(newRow);
                 }
             }
 
